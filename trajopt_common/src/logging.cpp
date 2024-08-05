@@ -1,6 +1,7 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <cstdlib>
+#include <iostream>
 #include <string>
 TRAJOPT_IGNORE_WARNINGS_POP
 
@@ -14,7 +15,7 @@ int LoggingInit()
 {
   const char* VALID_THRESH_VALUES = "FATAL ERROR WARN INFO DEBUG TRACE";
 
-  const char* lvlc = getenv("TRAJOPT_LOG_THRESH");
+  char* lvlc = getenv("TRAJOPT_LOG_THRESH");
   std::string lvlstr;
   if (lvlc == nullptr)
   {

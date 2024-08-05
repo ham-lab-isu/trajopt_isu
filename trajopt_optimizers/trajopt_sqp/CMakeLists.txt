@@ -44,8 +44,7 @@ add_library(
   src/ifopt_qp_problem.cpp
   src/trust_region_sqp_solver.cpp
   src/trajopt_qp_problem.cpp
-  src/expressions.cpp
-  src/types.cpp)
+  src/expressions.cpp)
 target_link_libraries(
   ${PROJECT_NAME}
   PUBLIC console_bridge::console_bridge

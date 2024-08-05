@@ -2,6 +2,7 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <boost/program_options.hpp>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <vector>

@@ -2,6 +2,7 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <cmath>
 #include <Eigen/Eigen>
+#include <fstream>
 #include <csignal>
 TRAJOPT_IGNORE_WARNINGS_POP
 
@@ -37,8 +38,8 @@ qpOASESModel::qpOASESModel()
 qpOASESModel::~qpOASESModel() = default;
 Var qpOASESModel::addVar(const std::string& name)
 {
-  const std::scoped_lock lock(mutex_);
-  vars_.emplace_back(std::make_shared<VarRep>(vars_.size(), name, this));
+  std::scoped_lock lock(mutex_);
+  vars_.push_back(std::make_shared<VarRep>(vars_.size(), name, this));
   lb_.push_back(-QPOASES_INFTY);
   ub_.push_back(QPOASES_INFTY);
   return vars_.back();
@@ -46,8 +47,8 @@ Var qpOASESModel::addVar(const std::string& name)
 
 Cnt qpOASESModel::addEqCnt(const AffExpr& expr, const std::string& /*name*/)
 {
-  const std::scoped_lock lock(mutex_);
-  cnts_.emplace_back(std::make_shared<CntRep>(cnts_.size(), this));
+  std::scoped_lock lock(mutex_);
+  cnts_.push_back(std::make_shared<CntRep>(cnts_.size(), this));
   cnt_exprs_.push_back(expr);
   cnt_types_.push_back(EQ);
   return cnts_.back();
@@ -55,8 +56,8 @@ Cnt qpOASESModel::addEqCnt(const AffExpr& expr, const std::string& /*name*/)
 
 Cnt qpOASESModel::addIneqCnt(const AffExpr& expr, const std::string& /*name*/)
 {
-  const std::scoped_lock lock(mutex_);
-  cnts_.emplace_back(std::make_shared<CntRep>(cnts_.size(), this));
+  std::scoped_lock lock(mutex_);
+  cnts_.push_back(std::make_shared<CntRep>(cnts_.size(), this));
   cnt_exprs_.push_back(expr);
   cnt_types_.push_back(INEQ);
   return cnts_.back();
@@ -70,7 +71,7 @@ Cnt qpOASESModel::addIneqCnt(const QuadExpr&, const std::string& /*name*/)
 
 void qpOASESModel::removeVars(const VarVector& vars)
 {
-  const std::scoped_lock lock(mutex_);
+  std::scoped_lock lock(mutex_);
   IntVec inds;
   vars2inds(vars, inds);
   for (const auto& var : vars)
@@ -79,7 +80,7 @@ void qpOASESModel::removeVars(const VarVector& vars)
 
 void qpOASESModel::removeCnts(const CntVector& cnts)
 {
-  const std::scoped_lock lock(mutex_);
+  std::scoped_lock lock(mutex_);
   IntVec inds;
   cnts2inds(cnts, inds);
   for (const auto& cnt : cnts)
@@ -104,8 +105,8 @@ void qpOASESModel::updateObjective()
 
 void qpOASESModel::updateConstraints()
 {
-  const std::size_t n = vars_.size();
-  const std::size_t m = cnts_.size();
+  const size_t n = vars_.size();
+  const size_t m = cnts_.size();
 
   lbA_.clear();
   lbA_.resize(m, -QPOASES_INFTY);
@@ -116,7 +117,7 @@ void qpOASESModel::updateConstraints()
   Eigen::VectorXd v;
   exprToEigen(cnt_exprs_, sm, v, static_cast<Eigen::Index>(n));
 
-  for (std::size_t i_cnt = 0; i_cnt < m; ++i_cnt)
+  for (size_t i_cnt = 0; i_cnt < m; ++i_cnt)
   {
     lbA_[i_cnt] = (cnt_types_[i_cnt] == INEQ) ? -QPOASES_INFTY : v[static_cast<Eigen::Index>(i_cnt)];
     ubA_[i_cnt] = v[static_cast<Eigen::Index>(i_cnt)];
@@ -152,8 +153,8 @@ void qpOASESModel::createSolver()
 void qpOASESModel::update()
 {
   {
-    std::size_t inew = 0;
-    for (std::size_t iold = 0; iold < vars_.size(); ++iold)
+    size_t inew = 0;
+    for (size_t iold = 0; iold < vars_.size(); ++iold)
     {
       Var& var = vars_[iold];
       if (!var.var_rep->removed)
@@ -174,8 +175,8 @@ void qpOASESModel::update()
     ub_.resize(inew, -QPOASES_INFTY);
   }
   {
-    std::size_t inew = 0;
-    for (std::size_t iold = 0; iold < cnts_.size(); ++iold)
+    size_t inew = 0;
+    for (size_t iold = 0; iold < cnts_.size(); ++iold)
     {
       Cnt& cnt = cnts_[iold];
       if (!cnt.cnt_rep->removed)
@@ -199,9 +200,9 @@ void qpOASESModel::update()
 
 void qpOASESModel::setVarBounds(const VarVector& vars, const DblVec& lower, const DblVec& upper)
 {
-  for (std::size_t i = 0; i < vars.size(); ++i)
+  for (size_t i = 0; i < vars.size(); ++i)
   {
-    const std::size_t varind = vars[i].var_rep->index;
+    const size_t varind = vars[i].var_rep->index;
     lb_[varind] = lower[i];
     ub_[varind] = upper[i];
   }
@@ -209,9 +210,9 @@ void qpOASESModel::setVarBounds(const VarVector& vars, const DblVec& lower, cons
 DblVec qpOASESModel::getVarValues(const VarVector& vars) const
 {
   DblVec out(vars.size());
-  for (std::size_t i = 0; i < vars.size(); ++i)
+  for (size_t i = 0; i < vars.size(); ++i)
   {
-    const std::size_t varind = vars[i].var_rep->index;
+    const size_t varind = vars[i].var_rep->index;
     out[i] = solution_[varind];
   }
   return out;

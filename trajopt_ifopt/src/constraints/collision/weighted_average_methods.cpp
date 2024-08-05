@@ -23,7 +23,6 @@
  */
 
 #include <trajopt_ifopt/constraints/collision/weighted_average_methods.h>
-#include <trajopt_common/collision_types.h>
 
 namespace trajopt_ifopt
 {
@@ -48,10 +47,10 @@ Eigen::VectorXd getWeightedAvgGradientT0(const trajopt_common::GradientResultsSe
         if (grad_results_set.max_error[i].error_with_buffer[0] > 0)
         {
           assert(grad_results_set.max_error[i].has_error[0]);
-          const double w = (std::max(grad.error_with_buffer, 0.0) / max_error_with_buffer);
+          double w = (std::max(grad.error_with_buffer, 0.0) / max_error_with_buffer);
           assert(!(w < 0));
           total_weight += w;
-          grad_vec += w * (grad.gradients[i].scale * grad.gradients[i].gradient);
+          grad_vec += w * (grad.cc_gradients[i].scale * grad.gradients[i].gradient);
           ++cnt;
         }
       }
@@ -86,10 +85,10 @@ Eigen::VectorXd getWeightedAvgGradientT1(const trajopt_common::GradientResultsSe
         if (grad_results_set.max_error[i].error_with_buffer[1] > 0)
         {
           assert(grad_results_set.max_error[i].has_error[1]);
-          const double w = (std::max(grad.error_with_buffer, 0.0) / max_error_with_buffer);
+          double w = (std::max(grad.error_with_buffer, 0.0) / max_error_with_buffer);
           assert(!(w < 0));
           total_weight += w;
-          grad_vec += w * (grad.cc_gradients[i].scale * grad.cc_gradients[i].gradient);
+          grad_vec += w * (grad.gradients[i].scale * grad.gradients[i].gradient);
           ++cnt;
         }
       }

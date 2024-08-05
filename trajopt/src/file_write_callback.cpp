@@ -18,15 +18,10 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <functional>
 #include <fstream>
 #include <console_bridge/console.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_environment/environment.h>
+#include <json/json.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt/file_write_callback.hpp>
-#include <trajopt/problem_description.hpp>
-#include <trajopt/utils.hpp>
-
-#include <trajopt_sco/optimizers.hpp>
 #include <trajopt_common/utils.hpp>
 
 namespace trajopt
@@ -54,7 +49,7 @@ void WriteFile(const std::shared_ptr<std::ofstream>& file,
     }
 
     // Calc cartesian pose
-    const tesseract_common::TransformMap state = manip->calcFwdKin(joint_angles);
+    tesseract_common::TransformMap state = manip->calcFwdKin(joint_angles);
 
     for (const auto& it : state)
     {
@@ -88,13 +83,12 @@ void WriteFile(const std::shared_ptr<std::ofstream>& file,
       *file << ',' << constraint;
     }
 
-    *file << '\n';
+    *file << std::endl;
   }
-  *file << '\n' << std::flush;
+  *file << std::endl;
 }  // namespace trajopt
 
-std::function<void(sco::OptProb*, sco::OptResults&)> WriteCallback(std::shared_ptr<std::ofstream> file,
-                                                                   const std::shared_ptr<TrajOptProb>& prob)
+sco::Optimizer::Callback WriteCallback(std::shared_ptr<std::ofstream> file, const TrajOptProb::Ptr& prob)
 {
   if (!file->good())
   {
@@ -103,7 +97,7 @@ std::function<void(sco::OptProb*, sco::OptResults&)> WriteCallback(std::shared_p
 
   // Write joint names
   std::vector<std::string> joint_names = prob->GetEnv()->getActiveJointNames();
-  for (std::size_t i = 0; i < joint_names.size(); i++)
+  for (size_t i = 0; i < joint_names.size(); i++)
   {
     if (i != 0)
     {
@@ -113,7 +107,7 @@ std::function<void(sco::OptProb*, sco::OptResults&)> WriteCallback(std::shared_p
   }
 
   // Write cartesian pose labels
-  const std::vector<std::string> pose_str = std::vector<std::string>{ "x", "y", "z", "q_w", "q_x", "q_y", "q_z" };
+  std::vector<std::string> pose_str = std::vector<std::string>{ "x", "y", "z", "q_w", "q_x", "q_y", "q_z" };
   for (const auto& i : pose_str)
   {
     *file << ',' << i;
@@ -133,11 +127,9 @@ std::function<void(sco::OptProb*, sco::OptResults&)> WriteCallback(std::shared_p
     *file << ',' << cnt->name();
   }
 
-  *file << '\n' << std::flush;
+  *file << std::endl;
 
   // return callback function
-  return [file, capture0 = prob->GetKin(), &capture1 = prob->GetVars()](auto&&, auto&& PH2) {
-    WriteFile(file, capture0, capture1, std::forward<decltype(PH2)>(PH2));
-  };
+  return bind(&WriteFile, file, prob->GetKin(), std::ref(prob->GetVars()), std::placeholders::_2);
 }
 }  // namespace trajopt

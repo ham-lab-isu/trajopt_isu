@@ -30,13 +30,16 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <Eigen/Eigen>
 #include <ifopt/constraint_set.h>
-#include <tesseract_kinematics/core/fwd.h>
+
+#include <tesseract_kinematics/core/inverse_kinematics.h>
+#include <tesseract_environment/environment.h>
+#include <tesseract_environment/utils.h>
 TRAJOPT_IGNORE_WARNINGS_POP
+
+#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 namespace trajopt_ifopt
 {
-class JointPosition;
-
 /**
  * @brief Contains kinematic information for the inverse kinematics constraint
  */
@@ -48,12 +51,20 @@ struct InverseKinematicsInfo
   using ConstPtr = std::shared_ptr<const InverseKinematicsInfo>;
 
   InverseKinematicsInfo() = default;
-  InverseKinematicsInfo(std::shared_ptr<const tesseract_kinematics::KinematicGroup> manip,
+  InverseKinematicsInfo(tesseract_kinematics::KinematicGroup::ConstPtr manip,
                         std::string working_frame,
                         std::string tcp_frame,
-                        const Eigen::Isometry3d& tcp_offset = Eigen::Isometry3d::Identity());
+                        const Eigen::Isometry3d& tcp_offset = Eigen::Isometry3d::Identity())
+    : manip(std::move(manip))
+    , working_frame(std::move(working_frame))
+    , tcp_frame(std::move(tcp_frame))
+    , tcp_offset(tcp_offset)
+  {
+    if (!this->manip->hasLinkName(this->tcp_frame))
+      throw std::runtime_error("Link name '" + this->tcp_frame + "' provided does not exist.");
+  }
 
-  std::shared_ptr<const tesseract_kinematics::KinematicGroup> manip;
+  tesseract_kinematics::KinematicGroup::ConstPtr manip;
 
   /** @brief Not currently respected */
   std::string working_frame;
@@ -83,8 +94,8 @@ public:
 
   InverseKinematicsConstraint(const Eigen::Isometry3d& target_pose,
                               InverseKinematicsInfo::ConstPtr kinematic_info,
-                              std::shared_ptr<const JointPosition> constraint_var,
-                              std::shared_ptr<const JointPosition> seed_var,
+                              JointPosition::ConstPtr constraint_var,
+                              JointPosition::ConstPtr seed_var,
                               const std::string& name = "InverseKinematics");
 
   /**
@@ -148,14 +159,14 @@ private:
   /** @brief Pointer to the var used by this constraint.
    *
    * Do not access them directly. Instead use this->GetVariables()->GetComponent(position_var->GetName())->GetValues()*/
-  std::shared_ptr<const JointPosition> constraint_var_;
+  JointPosition::ConstPtr constraint_var_;
   /** @brief Pointer to the var used as a seed when calculating IK. This will usually be a adjacent point in the
    * trajectory*/
-  std::shared_ptr<const JointPosition> seed_var_;
+  JointPosition::ConstPtr seed_var_;
   /** @brief Target pose for the TCP. Currently in robot frame since world_to_base_ has not been implemented */
   Eigen::Isometry3d target_pose_;
   /** @brief The kinematic info used to create this constraint */
   InverseKinematicsInfo::ConstPtr kinematic_info_;
 };
-}  // namespace trajopt_ifopt
+};  // namespace trajopt_ifopt
 #endif

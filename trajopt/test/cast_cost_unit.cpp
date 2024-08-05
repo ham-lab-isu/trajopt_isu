@@ -2,19 +2,14 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <ctime>
 #include <gtest/gtest.h>
-#include <tesseract_common/resource_locator.h>
-#include <tesseract_collision/core/continuous_contact_manager.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_state_solver/state_solver.h>
 #include <tesseract_environment/environment.h>
 #include <tesseract_environment/utils.h>
 #include <tesseract_visualization/visualization.h>
-#include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt/collision_terms.hpp>
+#include <trajopt/common.hpp>
 #include <trajopt/plot_callback.hpp>
-#include <trajopt/utils.hpp>
 #include <trajopt/problem_description.hpp>
 #include <trajopt_sco/optimizers.hpp>
 #include <trajopt_common/config.hpp>
@@ -44,10 +39,10 @@ public:
 
   void SetUp() override
   {
-    const boost::filesystem::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.urdf");
-    const boost::filesystem::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.srdf");
+    boost::filesystem::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.urdf");
+    boost::filesystem::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.srdf");
 
-    const ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
+    ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
     EXPECT_TRUE(env_->init(urdf_file, srdf_file, locator));
 
     gLogLevel = trajopt_common::LevelError;
@@ -61,7 +56,7 @@ void runTest(const Environment::Ptr& env, const Visualization::Ptr& plotter, boo
 {
   CONSOLE_BRIDGE_logDebug("CastTest, boxes");
 
-  const Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
+  Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
 
   std::unordered_map<std::string, double> ipos;
   ipos["boxbot_x_joint"] = -1.9;
@@ -70,12 +65,12 @@ void runTest(const Environment::Ptr& env, const Visualization::Ptr& plotter, boo
 
   //  plotter_->plotScene();
 
-  const TrajOptProb::Ptr prob = ConstructProblem(root, env);
+  TrajOptProb::Ptr prob = ConstructProblem(root, env);
   ASSERT_TRUE(!!prob);
 
   std::vector<ContactResultMap> collisions;
-  const tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
-  const ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
+  tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
+  ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
 
   manager->setActiveCollisionObjects(prob->GetKin()->getActiveLinkNames());
   manager->setDefaultCollisionMarginData(0);
@@ -109,7 +104,7 @@ void runTest(const Environment::Ptr& env, const Visualization::Ptr& plotter, boo
     plotter->clear();
 
   collisions.clear();
-  std::cout << getTraj(opt->x(), prob->GetVars()) << '\n';
+  std::cout << getTraj(opt->x(), prob->GetVars()) << std::endl;
 
   found = checkTrajectory(
       collisions, *manager, *state_solver, prob->GetKin()->getJointNames(), getTraj(opt->x(), prob->GetVars()), config);

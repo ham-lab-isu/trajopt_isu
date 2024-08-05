@@ -2,7 +2,6 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <vector>
 TRAJOPT_IGNORE_WARNINGS_POP
@@ -26,7 +25,7 @@ using CntVector = std::vector<Cnt>;
 inline double vecSum(const DblVec& v)
 {
   double out = 0;
-  for (const double i : v)
+  for (double i : v)
     out += i;
   return out;
 }
@@ -35,7 +34,7 @@ inline double vecSum(const DblVec& v)
 inline double vecAbsSum(const DblVec& v)
 {
   double out = 0;
-  for (const double i : v)
+  for (double i : v)
     out += fabs(i);
   return out;
 }
@@ -50,7 +49,7 @@ inline double sq(double x) { return x * x; }
 inline double vecHingeSum(const DblVec& v)
 {
   double out = 0;
-  for (const double i : v)
+  for (double i : v)
     out += pospart(i);
   return out;
 }

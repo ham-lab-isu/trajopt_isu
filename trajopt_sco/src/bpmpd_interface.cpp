@@ -1,9 +1,7 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <cmath>
-#include <csignal>
 #include <array>
-#include <mutex>
 #include <trajopt_sco/bpmpd_io.hpp>
 TRAJOPT_IGNORE_WARNINGS_POP
 
@@ -164,8 +162,7 @@ Model::Ptr createBPMPDModel()
 
 pid_t popen2(const char* command, int* infp, int* outfp)
 {
-  std::array<int, 2> p_stdin{};
-  std::array<int, 2> p_stdout{};
+  std::array<int, 2> p_stdin{}, p_stdout{};
   pid_t pid{ 0 };
 
   if (pipe(p_stdin.data()) != 0 || pipe(p_stdout.data()) != 0)
@@ -211,7 +208,7 @@ static int gPipeOut = 0;  // NOLINT
 void fexit()
 {
   std::array<char, 1> text{ bpmpd_io::EXIT_CHAR };
-  long const n = write(gPipeIn, text.data(), 1);
+  long n = write(gPipeIn, text.data(), 1);
   ALWAYS_ASSERT(n == 1);
 }
 
@@ -237,24 +234,24 @@ BPMPDModel::BPMPDModel()
 
 Var BPMPDModel::addVar(const std::string& name)
 {
-  const std::scoped_lock lock(m_mutex);
-  m_vars.emplace_back(std::make_shared<VarRep>(m_vars.size(), name, this));
+  std::scoped_lock lock(m_mutex);
+  m_vars.push_back(std::make_shared<VarRep>(m_vars.size(), name, this));
   m_lbs.push_back(-BPMPD_BIG);
   m_ubs.push_back(BPMPD_BIG);
   return m_vars.back();
 }
 Cnt BPMPDModel::addEqCnt(const AffExpr& expr, const std::string& /*name*/)
 {
-  const std::scoped_lock lock(m_mutex);
-  m_cnts.emplace_back(std::make_shared<CntRep>(m_cnts.size(), this));
+  std::scoped_lock lock(m_mutex);
+  m_cnts.push_back(std::make_shared<CntRep>(m_cnts.size(), this));
   m_cntExprs.push_back(expr);
   m_cntTypes.push_back(EQ);
   return m_cnts.back();
 }
 Cnt BPMPDModel::addIneqCnt(const AffExpr& expr, const std::string& /*name*/)
 {
-  const std::scoped_lock lock(m_mutex);
-  m_cnts.emplace_back(std::make_shared<CntRep>(m_cnts.size(), this));
+  std::scoped_lock lock(m_mutex);
+  m_cnts.push_back(std::make_shared<CntRep>(m_cnts.size(), this));
   m_cntExprs.push_back(expr);
   m_cntTypes.push_back(INEQ);
   return m_cnts.back();
@@ -266,7 +263,7 @@ Cnt BPMPDModel::addIneqCnt(const QuadExpr&, const std::string& /*name*/)
 
 void BPMPDModel::removeVars(const VarVector& vars)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   SizeTVec inds;
   vars2inds(vars, inds);
   for (const auto& var : vars)
@@ -275,7 +272,7 @@ void BPMPDModel::removeVars(const VarVector& vars)
 
 void BPMPDModel::removeCnts(const CntVector& cnts)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   SizeTVec inds;
   cnts2inds(cnts, inds);
   for (auto& cnt : cnts)  // NOLINT
@@ -285,7 +282,7 @@ void BPMPDModel::removeCnts(const CntVector& cnts)
 void BPMPDModel::update()
 {
   {
-    std::size_t inew = 0;
+    size_t inew = 0;
     for (unsigned iold = 0; iold < m_vars.size(); ++iold)
     {
       Var& var = m_vars[iold];
@@ -307,7 +304,7 @@ void BPMPDModel::update()
     m_ubs.resize(inew);
   }
   {
-    std::size_t inew = 0;
+    size_t inew = 0;
     for (unsigned iold = 0; iold < m_cnts.size(); ++iold)
     {
       Cnt& cnt = m_cnts[iold];
@@ -334,7 +331,7 @@ void BPMPDModel::setVarBounds(const VarVector& vars, const DblVec& lower, const 
 {
   for (unsigned i = 0; i < vars.size(); ++i)
   {
-    auto varind = static_cast<std::size_t>(vars[i].var_rep->index);
+    auto varind = static_cast<size_t>(vars[i].var_rep->index);
     m_lbs[varind] = lower[i];
     m_ubs[varind] = upper[i];
   }
@@ -344,13 +341,13 @@ DblVec BPMPDModel::getVarValues(const VarVector& vars) const
   DblVec out(vars.size());
   for (unsigned i = 0; i < vars.size(); ++i)
   {
-    auto varind = static_cast<std::size_t>(vars[i].var_rep->index);
+    auto varind = static_cast<size_t>(vars[i].var_rep->index);
     out[i] = m_soln[varind];
   }
   return out;
 }
 
-#define DBG(expr)  // cout << #expr << ": " << CSTR(expr) << '\n'
+#define DBG(expr)  // cout << #expr << ": " << CSTR(expr) << std::endl
 
 CvxOptStatus BPMPDModel::optimize()
 {
@@ -364,26 +361,15 @@ CvxOptStatus BPMPDModel::optimize()
   // lbound[maxn+maxm],
   //        ubound[maxn+maxm], primal[maxn+maxm], dual[maxn+maxm], big, opt;
 
-  const std::size_t n = m_vars.size();
-  const std::size_t m = m_cnts.size();
+  size_t n = m_vars.size();
+  size_t m = m_cnts.size();
 
-  IntVec acolcnt(n);
-  IntVec acolidx;
-  IntVec qcolcnt(n);
-  IntVec qcolidx;
-  const IntVec status(m + n);
-  DblVec acolnzs;
-  DblVec qcolnzs;
-  DblVec rhs(m);
-  DblVec obj(n, 0);
-  DblVec lbound(m + n);
-  DblVec ubound(m + n);
-  const DblVec primal(m + n);
-  const DblVec dual(m + n);
+  IntVec acolcnt(n), acolidx, qcolcnt(n), qcolidx, status(m + n);
+  DblVec acolnzs, qcolnzs, rhs(m), obj(n, 0), lbound(m + n), ubound(m + n), primal(m + n), dual(m + n);
 
   DBG(m_lbs);
   DBG(m_ubs);
-  for (std::size_t iVar = 0; iVar < n; ++iVar)
+  for (size_t iVar = 0; iVar < n; ++iVar)
   {
     lbound[iVar] = fmax(m_lbs[iVar], -BPMPD_BIG);
     ubound[iVar] = fmin(m_ubs[iVar], BPMPD_BIG);
@@ -391,17 +377,17 @@ CvxOptStatus BPMPDModel::optimize()
 
   std::vector<IntVec> var2cntinds(n);
   std::vector<DblVec> var2cntvals(n);
-  for (std::size_t iCnt = 0; iCnt < m; ++iCnt)
+  for (size_t iCnt = 0; iCnt < m; ++iCnt)
   {
     const AffExpr& aff = m_cntExprs[iCnt];
     // cout << "adding constraint " << aff << endl;
     SizeTVec inds;
     vars2inds(aff.vars, inds);
 
-    for (std::size_t i = 0; i < aff.vars.size(); ++i)
+    for (size_t i = 0; i < aff.vars.size(); ++i)
     {
-      var2cntinds[static_cast<std::size_t>(inds[i])].push_back(static_cast<int>(iCnt));
-      var2cntvals[static_cast<std::size_t>(inds[i])].push_back(aff.coeffs[i]);  // xxx maybe repeated/
+      var2cntinds[static_cast<size_t>(inds[i])].push_back(static_cast<int>(iCnt));
+      var2cntvals[static_cast<size_t>(inds[i])].push_back(aff.coeffs[i]);  // xxx maybe repeated/
     }
 
     lbound[n + iCnt] = (m_cntTypes[iCnt] == INEQ) ? -BPMPD_BIG : 0;
@@ -409,7 +395,7 @@ CvxOptStatus BPMPDModel::optimize()
     rhs[iCnt] = -aff.constant;
   }
 
-  for (std::size_t iVar = 0; iVar < n; ++iVar)
+  for (size_t iVar = 0; iVar < n; ++iVar)
   {
     simplify2(var2cntinds[iVar], var2cntvals[iVar]);
     acolcnt[iVar] = static_cast<int>(var2cntinds[iVar].size());
@@ -421,10 +407,10 @@ CvxOptStatus BPMPDModel::optimize()
 
   std::vector<DblVec> var2qcoeffs(n);
   std::vector<IntVec> var2qinds(n);
-  for (std::size_t i = 0; i < m_objective.size(); ++i)
+  for (size_t i = 0; i < m_objective.size(); ++i)
   {
-    auto idx1 = static_cast<std::size_t>(m_objective.vars1[i].var_rep->index);
-    auto idx2 = static_cast<std::size_t>(m_objective.vars2[i].var_rep->index);
+    auto idx1 = static_cast<size_t>(m_objective.vars1[i].var_rep->index);
+    auto idx2 = static_cast<size_t>(m_objective.vars2[i].var_rep->index);
     if (idx1 < idx2)
     {
       var2qinds[idx1].push_back(static_cast<int>(idx2));
@@ -442,7 +428,7 @@ CvxOptStatus BPMPDModel::optimize()
     }
   }
 
-  for (std::size_t iVar = 0; iVar < n; ++iVar)
+  for (size_t iVar = 0; iVar < n; ++iVar)
   {
     simplify2(var2qinds[iVar], var2qcoeffs[iVar]);
     qcolidx.insert(qcolidx.end(), var2qinds[iVar].begin(), var2qinds[iVar].end());
@@ -450,9 +436,9 @@ CvxOptStatus BPMPDModel::optimize()
     qcolcnt[iVar] = static_cast<int>(var2qinds[iVar].size());
   }
 
-  for (std::size_t i = 0; i < m_objective.affexpr.size(); ++i)
+  for (size_t i = 0; i < m_objective.affexpr.size(); ++i)
   {
-    obj[static_cast<std::size_t>(m_objective.affexpr.vars[i].var_rep->index)] += m_objective.affexpr.coeffs[i];
+    obj[static_cast<size_t>(m_objective.affexpr.vars[i].var_rep->index)] += m_objective.affexpr.coeffs[i];
   }
 
 #define VECINC(vec)                                                                                                    \
@@ -520,13 +506,13 @@ CvxOptStatus BPMPDModel::optimize()
                            ubound);
   bpmpd_io::ser(gPipeIn, bi, bpmpd_io::SER);
 
-  // std::cout << "serialization time:" << end-start << '\n';
+  // std::cout << "serialization time:" << end-start << std::endl;
 
   bpmpd_io::bpmpd_output bo;
   bpmpd_io::ser(gPipeOut, bo, bpmpd_io::DESER);
 
   m_soln = DblVec(bo.primal.begin(), bo.primal.begin() + static_cast<long int>(n));
-  const int retcode = bo.code;
+  int retcode = bo.code;
 
   if (retcode == 2)
     return CVX_SOLVED;

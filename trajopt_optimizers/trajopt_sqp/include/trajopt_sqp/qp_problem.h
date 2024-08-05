@@ -2,18 +2,12 @@
 #define TRAJOPT_SQP_QP_PROBLEM_BASE_H
 
 #include <memory>
-#include <trajopt_sqp/eigen_types.h>
-
-namespace ifopt
-{
-class VariableSet;
-class ConstraintSet;
-}  // namespace ifopt
+#include <trajopt_sqp/types.h>
+#include <ifopt/variable_set.h>
+#include <ifopt/constraint_set.h>
 
 namespace trajopt_sqp
 {
-enum class CostPenaltyType : std::uint8_t;
-
 /** @brief QP Problem Base */
 class QPProblem
 {
@@ -31,7 +25,7 @@ public:
    * the optimal timing values. This function correctly appends the
    * individual variables sets and ensures correct order of Jacobian columns.
    */
-  virtual void addVariableSet(std::shared_ptr<ifopt::VariableSet> variable_set) = 0;
+  virtual void addVariableSet(ifopt::VariableSet::Ptr variable_set) = 0;
 
   /**
    * @brief Add a set of multiple constraints to the optimization problem.
@@ -41,7 +35,7 @@ public:
    * constraints. It makes sure the overall constraint and Jacobian correctly
    * considers all individual constraint sets.
    */
-  virtual void addConstraintSet(std::shared_ptr<ifopt::ConstraintSet> constraint_set) = 0;
+  virtual void addConstraintSet(ifopt::ConstraintSet::Ptr constraint_set) = 0;
 
   /**
    * @brief Add a squared cost term to the problem.
@@ -51,7 +45,7 @@ public:
    * composed of different cost terms. It makes sure the overall value and
    * gradient is considering each individual cost.
    */
-  virtual void addCostSet(std::shared_ptr<ifopt::ConstraintSet> constraint_set, CostPenaltyType penalty_type) = 0;
+  virtual void addCostSet(ifopt::ConstraintSet::Ptr constraint_set, CostPenaltyType penalty_type) = 0;
 
   /**
    * @brief This setups the QP problems based on the constraints and cost sets added to the problem.
@@ -62,7 +56,7 @@ public:
   /** @brief Set the current Optimization variables */
   virtual void setVariables(const double* x) = 0;
 
-  /** @brief Get the current Optimization variable values */
+  /** @brief Set the current Optimization variable values */
   virtual Eigen::VectorXd getVariableValues() const = 0;
 
   /** @brief Run the full convexification routine */
@@ -135,14 +129,6 @@ public:
    * @param box_size New box size
    */
   virtual void setBoxSize(const Eigen::Ref<const Eigen::VectorXd>& box_size) = 0;
-
-  /**
-   * @brief Set the constraint merit coeff
-   * @details This controls the gradient for the constraint slack variables.
-   * @param merit_coeff
-   */
-  virtual void setConstraintMeritCoeff(const Eigen::Ref<const Eigen::VectorXd>& merit_coeff) = 0;
-
   /**
    * @brief Returns the box size
    * @return The box size for each variable

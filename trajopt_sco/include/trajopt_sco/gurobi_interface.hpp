@@ -29,7 +29,7 @@ public:
   std::mutex m_mutex;
 
   GurobiModel();
-  ~GurobiModel() override;
+  ~GurobiModel();
 
   // Must be threadsafe
   Var addVar(const std::string& name) override;

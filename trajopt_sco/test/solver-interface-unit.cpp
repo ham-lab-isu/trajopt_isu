@@ -32,7 +32,7 @@ TEST(SolverInterface, simplify2)  // NOLINT
 
 TEST_P(SolverInterface, setup_problem)  // NOLINT
 {
-  const Model::Ptr solver = createModel(GetParam());
+  Model::Ptr solver = createModel(GetParam());
   VarVector vars;
   for (int i = 0; i < 3; ++i)
   {
@@ -43,15 +43,15 @@ TEST_P(SolverInterface, setup_problem)  // NOLINT
   solver->update();
 
   AffExpr aff;
-  std::cout << aff << '\n';
-  for (std::size_t i = 0; i < 3; ++i)
+  std::cout << aff << std::endl;
+  for (size_t i = 0; i < 3; ++i)
   {
     exprInc(aff, vars[i]);
     solver->setVarBounds(vars[i], 0, 10);
   }
   aff.constant -= 3;
-  std::cout << aff << '\n';
-  const QuadExpr affsquared = exprSquare(aff);
+  std::cout << aff << std::endl;
+  QuadExpr affsquared = exprSquare(aff);
   solver->setObjective(affsquared);
   solver->update();
   LOG_INFO("objective: %s", CSTR(affsquared));
@@ -61,7 +61,7 @@ TEST_P(SolverInterface, setup_problem)  // NOLINT
   solver->optimize();
 
   DblVec soln(3);
-  for (std::size_t i = 0; i < 3; ++i)
+  for (size_t i = 0; i < 3; ++i)
   {
     soln[i] = solver->getVarValue(vars[i]);
   }
@@ -75,7 +75,7 @@ TEST_P(SolverInterface, setup_problem)  // NOLINT
 // Tests multiplying larger terms
 TEST_P(SolverInterface, DISABLED_ExprMult_test1)  // NOLINT // QuadExpr not PSD
 {
-  const Model::Ptr solver = createModel(GetParam());
+  Model::Ptr solver = createModel(GetParam());
   VarVector vars;
   for (int i = 0; i < 3; ++i)
   {
@@ -92,26 +92,26 @@ TEST_P(SolverInterface, DISABLED_ExprMult_test1)  // NOLINT // QuadExpr not PSD
   solver->update();
 
   AffExpr aff1;
-  std::cout << aff1 << '\n';
-  for (std::size_t i = 0; i < 3; ++i)
+  std::cout << aff1 << std::endl;
+  for (size_t i = 0; i < 3; ++i)
   {
     exprInc(aff1, vars[i]);
     solver->setVarBounds(vars[i], 0, 10);
   }
   aff1.constant -= 3;
-  std::cout << aff1 << '\n';
+  std::cout << aff1 << std::endl;
 
   AffExpr aff2;
-  std::cout << aff2 << '\n';
-  for (std::size_t i = 3; i < 6; ++i)
+  std::cout << aff2 << std::endl;
+  for (size_t i = 3; i < 6; ++i)
   {
     exprInc(aff2, vars[i]);
     solver->setVarBounds(vars[i], 0, 10);
   }
   aff2.constant -= 5;
 
-  std::cout << aff2 << '\n';
-  const QuadExpr aff12 = exprMult(aff1, aff2);
+  std::cout << aff2 << std::endl;
+  QuadExpr aff12 = exprMult(aff1, aff2);
   solver->setObjective(aff12);
   solver->update();
   LOG_INFO("objective: %s", CSTR(aff12));
@@ -121,7 +121,7 @@ TEST_P(SolverInterface, DISABLED_ExprMult_test1)  // NOLINT // QuadExpr not PSD
   solver->optimize();
 
   DblVec soln(3);
-  for (std::size_t i = 0; i < 3; ++i)
+  for (size_t i = 0; i < 3; ++i)
   {
     soln[i] = solver->getVarValue(vars[i]);
   }
@@ -142,7 +142,7 @@ TEST_P(SolverInterface, ExprMult_test2)  // NOLINT
   const double aff1_const = 0;
   const double aff2_const = 0;
 
-  const Model::Ptr solver = createModel(GetParam());
+  Model::Ptr solver = createModel(GetParam());
   VarVector vars;
   vars.push_back(solver->addVar("v1"));
   vars.push_back(solver->addVar("v2"));
@@ -162,9 +162,9 @@ TEST_P(SolverInterface, ExprMult_test2)  // NOLINT
   aff2.constant = aff2_const;
   aff2.coeffs[0] = v2_coeff;
 
-  std::cout << "aff1: " << aff1 << '\n';
-  std::cout << "aff2: " << aff2 << '\n';
-  const QuadExpr aff12 = exprMult(aff1, aff2);
+  std::cout << "aff1: " << aff1 << std::endl;
+  std::cout << "aff2: " << aff2 << std::endl;
+  QuadExpr aff12 = exprMult(aff1, aff2);
   solver->setObjective(aff12);
   solver->update();
   LOG_INFO("objective: %s", CSTR(aff12));
@@ -174,13 +174,13 @@ TEST_P(SolverInterface, ExprMult_test2)  // NOLINT
   solver->optimize();
 
   DblVec soln(2);
-  for (std::size_t i = 0; i < 2; ++i)
+  for (size_t i = 0; i < 2; ++i)
   {
     soln[i] = solver->getVarValue(vars[i]);
-    std::cout << soln[i] << '\n';
+    std::cout << soln[i] << std::endl;
   }
-  std::cout << "Result: " << aff12.value(soln) << '\n';
-  const double answer = (v1_coeff * v1_val + aff1_const) * (v2_coeff * v2_val + aff2_const);
+  std::cout << "Result: " << aff12.value(soln) << std::endl;
+  double answer = (v1_coeff * v1_val + aff1_const) * (v2_coeff * v2_val + aff2_const);
   EXPECT_NEAR(aff12.value(soln), answer, 1e-6);
 }
 
@@ -194,7 +194,7 @@ TEST_P(SolverInterface, ExprMult_test3)  // NOLINT
   const double aff1_const = -3;
   const double aff2_const = -5;
 
-  const Model::Ptr solver = createModel(GetParam());
+  Model::Ptr solver = createModel(GetParam());
   VarVector vars;
   vars.push_back(solver->addVar("v1"));
   vars.push_back(solver->addVar("v2"));
@@ -214,9 +214,9 @@ TEST_P(SolverInterface, ExprMult_test3)  // NOLINT
   aff2.constant = aff2_const;
   aff2.coeffs[0] = v2_coeff;
 
-  std::cout << "aff1: " << aff1 << '\n';
-  std::cout << "aff2: " << aff2 << '\n';
-  const QuadExpr aff12 = exprMult(aff1, aff2);
+  std::cout << "aff1: " << aff1 << std::endl;
+  std::cout << "aff2: " << aff2 << std::endl;
+  QuadExpr aff12 = exprMult(aff1, aff2);
   solver->setObjective(aff12);
   solver->update();
   LOG_INFO("objective: %s", CSTR(aff12));
@@ -226,13 +226,13 @@ TEST_P(SolverInterface, ExprMult_test3)  // NOLINT
   solver->optimize();
 
   DblVec soln(2);
-  for (std::size_t i = 0; i < 2; ++i)
+  for (size_t i = 0; i < 2; ++i)
   {
     soln[i] = solver->getVarValue(vars[i]);
-    std::cout << soln[i] << '\n';
+    std::cout << soln[i] << std::endl;
   }
-  std::cout << "Result: " << aff12.value(soln) << '\n';
-  const double answer = (v1_coeff * v1_val + aff1_const) * (v2_coeff * v2_val + aff2_const);
+  std::cout << "Result: " << aff12.value(soln) << std::endl;
+  double answer = (v1_coeff * v1_val + aff1_const) * (v2_coeff * v2_val + aff2_const);
   EXPECT_NEAR(aff12.value(soln), answer, 1e-6);
 }
 

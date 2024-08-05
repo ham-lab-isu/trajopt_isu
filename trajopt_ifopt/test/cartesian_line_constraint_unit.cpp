@@ -6,13 +6,9 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <console_bridge/console.h>
 #include <ifopt/problem.h>
 #include <tesseract_common/types.h>
-#include <tesseract_common/resource_locator.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_environment/environment.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_ifopt/constraints/cartesian_line_constraint.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 #include <trajopt_ifopt/utils/numeric_differentiation.h>
 
 using namespace trajopt_ifopt;
@@ -42,10 +38,10 @@ public:
   void SetUp() override
   {
     // Initialize Tesseract
-    const tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
-    const tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
+    tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
+    tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
     auto locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
-    const bool status = env->init(urdf_file, srdf_file, locator);
+    bool status = env->init(urdf_file, srdf_file, locator);
     EXPECT_TRUE(status);
 
     // Extract necessary kinematic information
@@ -57,7 +53,7 @@ public:
     variables->AddComponent(var);
 
     // Add constraints
-    const Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
+    Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
     source_tf = manip->calcFwdKin(joint_position).at("r_gripper_tool_frame");
 
     line_start_pose = source_tf;
@@ -76,7 +72,7 @@ TEST_F(CartesianLineConstraintUnit, GetValue)  // NOLINT
     Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
 
     info = trajopt_ifopt::CartLineInfo(manip, "r_gripper_tool_frame", "base_link", line_start_pose, line_end_pose);
-    const Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
+    Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
     auto constraint = std::make_shared<trajopt_ifopt::CartLineConstraint>(info, var, coeff);
     constraint->LinkWithVariables(variables);
 
@@ -102,7 +98,7 @@ TEST_F(CartesianLineConstraintUnit, GetValue)  // NOLINT
 
   // distance error with a 3-4-5 triangle
   {
-    const Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
+    Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
 
     Eigen::Isometry3d start_pose_mod = line_start_pose;
     Eigen::Isometry3d end_pose_mod = line_end_pose;
@@ -110,7 +106,7 @@ TEST_F(CartesianLineConstraintUnit, GetValue)  // NOLINT
     end_pose_mod.translation() = end_pose_mod.translation() + Eigen::Vector3d(0.0, 0.3, 0.4);
 
     info = trajopt_ifopt::CartLineInfo(manip, "r_gripper_tool_frame", "base_link", start_pose_mod, end_pose_mod);
-    const Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
+    Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
     auto constraint = std::make_shared<trajopt_ifopt::CartLineConstraint>(info, var, coeff);
     constraint->LinkWithVariables(variables);
 
@@ -125,15 +121,15 @@ TEST_F(CartesianLineConstraintUnit, FillJacobian)  // NOLINT
   CONSOLE_BRIDGE_logDebug("CartesianPositionConstraintUnit, FillJacobian");
 
   // Run FK to get target pose
-  const Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
+  Eigen::VectorXd joint_position = Eigen::VectorXd::Ones(n_dof);
   Eigen::Isometry3d source_tf = manip->calcFwdKin(joint_position).at("r_gripper_tool_frame");
 
   // Set the line endpoints st the target pose is on the line
-  const Eigen::Isometry3d start_pose_mod = source_tf.translate(Eigen::Vector3d(-1.0, 0, 0));
-  const Eigen::Isometry3d end_pose_mod = source_tf.translate(Eigen::Vector3d(1.0, 0, 0));
+  Eigen::Isometry3d start_pose_mod = source_tf.translate(Eigen::Vector3d(-1.0, 0, 0));
+  Eigen::Isometry3d end_pose_mod = source_tf.translate(Eigen::Vector3d(1.0, 0, 0));
 
   info = trajopt_ifopt::CartLineInfo(manip, "r_gripper_tool_frame", "base_link", start_pose_mod, end_pose_mod);
-  const Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
+  Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
   auto constraint = std::make_shared<trajopt_ifopt::CartLineConstraint>(info, var, coeff);
   constraint->LinkWithVariables(variables);
 
@@ -148,7 +144,7 @@ TEST_F(CartesianLineConstraintUnit, FillJacobian)  // NOLINT
 
     // Calculate jacobian numerically
     auto error_calculator = [&](const Eigen::Ref<const Eigen::VectorXd>& x) { return constraint->CalcValues(x); };
-    const ifopt::ConstraintSet::Jacobian num_jac_block =
+    ifopt::ConstraintSet::Jacobian num_jac_block =
         trajopt_ifopt::calcForwardNumJac(error_calculator, joint_position_mod, 1e-4);
 
     // Compare to constraint jacobian
@@ -174,16 +170,16 @@ TEST_F(CartesianLineConstraintUnit, GetSetBounds)  // NOLINT
 
   // Check that setting bounds works
   info = trajopt_ifopt::CartLineInfo(manip, "r_gripper_tool_frame", "base_link", line_start_pose, line_end_pose);
-  const Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
+  Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
   auto constraint = std::make_shared<trajopt_ifopt::CartLineConstraint>(info, var, coeff);
   constraint->LinkWithVariables(variables);
 
-  const ifopt::Bounds bounds(-0.1234, 0.5678);
+  ifopt::Bounds bounds(-0.1234, 0.5678);
   std::vector<ifopt::Bounds> bounds_vec = std::vector<ifopt::Bounds>(6, bounds);
 
   constraint->SetBounds(bounds_vec);
   std::vector<ifopt::Bounds> results_vec = constraint->GetBounds();
-  for (std::size_t i = 0; i < bounds_vec.size(); i++)
+  for (size_t i = 0; i < bounds_vec.size(); i++)
   {
     EXPECT_EQ(bounds_vec[i].lower_, results_vec[i].lower_);
     EXPECT_EQ(bounds_vec[i].upper_, results_vec[i].upper_);
@@ -198,7 +194,7 @@ TEST_F(CartesianLineConstraintUnit, IgnoreVariables)  // NOLINT
   CONSOLE_BRIDGE_logDebug("CartesianPositionConstraintUnit, IgnoreVariables");
 
   info = trajopt_ifopt::CartLineInfo(manip, "r_gripper_tool_frame", "base_link", line_start_pose, line_end_pose);
-  const Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
+  Eigen::VectorXd coeff = Eigen::VectorXd::Ones(info.indices.rows());
   auto constraint = std::make_shared<trajopt_ifopt::CartLineConstraint>(info, var, coeff);
   constraint->LinkWithVariables(variables);
 

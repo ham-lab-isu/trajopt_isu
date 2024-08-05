@@ -9,13 +9,14 @@
 #if defined(__clang__)
 #define TRAJOPT_IGNORE_WARNINGS_PUSH				                                                                           \
   _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wall\"")                                           \
-      _Pragma("GCC diagnostic ignored \"-Wint-to-pointer-cast\"")		                                                   \
-          _Pragma("GCC diagnostic ignored \"-Wunused-parameter\"")		                                                 \
-              _Pragma("GCC diagnostic ignored \"-Winconsistent-missing-override\"")	                                   \
-                  _Pragma("GCC diagnostic ignored \"-Wconversion\"")			                                             \
-                      _Pragma("GCC diagnostic ignored \"-Wfloat-conversion\"")		                                     \
-                          _Pragma("GCC diagnostic ignored \"-Wignored-qualifiers\"")                                   \
-                              _Pragma("GCC diagnostic ignored \"-Wsign-conversion\"")
+     _Pragma("GCC diagnostic ignored \"-Wint-to-pointer-cast\"")		                                                   \
+         _Pragma("GCC diagnostic ignored \"-Wunused-parameter\"")		                                                   \
+             _Pragma("GCC diagnostic ignored \"-Winconsistent-missing-override\"")	                                   \
+                 _Pragma("GCC diagnostic ignored \"-Wconversion\"")			                                               \
+                     _Pragma("GCC diagnostic ignored \"-Wfloat-conversion\"")		                                       \
+                         _Pragma("GCC diagnostic ignored \"-Wignored-qualifiers\"")                                    \
+                             _Pragma("GCC diagnostic ignored \"-Wclass-memaccess\"")                                   \
+                                 _Pragma("GCC diagnostic ignored \"-Wsign-conversion\"")
 #else
 #define TRAJOPT_IGNORE_WARNINGS_PUSH                                                                                   \
   _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wall\"")                                           \
@@ -85,7 +86,7 @@
   do                                                                                                                   \
   {                                                                                                                    \
     std::cerr << "\033[1;31mERROR " << (s) << "\033[0m\n";                                                             \
-    std::cerr << "at " << __FILE__ << ":" << __LINE__ << '\n';                                                    \
+    std::cerr << "at " << __FILE__ << ":" << __LINE__ << std::endl;                                                    \
     std::stringstream ss;                                                                                              \
     ss << (s);                                                                                                         \
     throw std::runtime_error(ss.str());                                                                                \

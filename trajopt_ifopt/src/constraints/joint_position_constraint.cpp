@@ -24,7 +24,6 @@
  * limitations under the License.
  */
 #include <trajopt_ifopt/constraints/joint_position_constraint.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <console_bridge/console.h>
@@ -33,16 +32,16 @@ TRAJOPT_IGNORE_WARNINGS_POP
 namespace trajopt_ifopt
 {
 JointPosConstraint::JointPosConstraint(const Eigen::VectorXd& targets,
-                                       const std::vector<std::shared_ptr<const JointPosition>>& position_vars,
+                                       const std::vector<JointPosition::ConstPtr>& position_vars,
                                        const Eigen::VectorXd& coeffs,
                                        const std::string& name)
   : ifopt::ConstraintSet(static_cast<int>(targets.size()) * static_cast<int>(position_vars.size()), name)
-  , n_dof_(targets.size())
-  , n_vars_(static_cast<long>(position_vars.size()))
   , coeffs_(coeffs)
   , position_vars_(position_vars)
 {
   // Set the n_dof and n_vars for convenience
+  n_dof_ = targets.size();
+  n_vars_ = static_cast<long>(position_vars.size());
   assert(n_dof_ > 0);
   assert(n_vars_ > 0);
 
@@ -63,21 +62,21 @@ JointPosConstraint::JointPosConstraint(const Eigen::VectorXd& targets,
   }
 
   // Set the bounds to the input targets
-  std::vector<ifopt::Bounds> bounds(static_cast<std::size_t>(GetRows()));
+  std::vector<ifopt::Bounds> bounds(static_cast<size_t>(GetRows()));
   // All of the positions should be exactly at their targets
   for (long j = 0; j < n_vars_; j++)
   {
     for (long i = 0; i < n_dof_; i++)
     {
-      const double w_target = coeffs_[i] * targets[i];
-      bounds[static_cast<std::size_t>(i + j * n_dof_)] = ifopt::Bounds(w_target, w_target);
+      double w_target = coeffs_[i] * targets[i];
+      bounds[static_cast<size_t>(i + j * n_dof_)] = ifopt::Bounds(w_target, w_target);
     }
   }
   bounds_ = bounds;
 }
 
 JointPosConstraint::JointPosConstraint(const std::vector<ifopt::Bounds>& bounds,
-                                       const std::vector<std::shared_ptr<const JointPosition>>& position_vars,
+                                       const std::vector<JointPosition::ConstPtr>& position_vars,
                                        const Eigen::VectorXd& coeffs,
                                        const std::string& name)
   : ifopt::ConstraintSet(static_cast<int>(bounds.size()) * static_cast<int>(position_vars.size()), name)
@@ -111,7 +110,7 @@ JointPosConstraint::JointPosConstraint(const std::vector<ifopt::Bounds>& bounds,
 Eigen::VectorXd JointPosConstraint::GetValues() const
 {
   // Get the correct variables
-  Eigen::VectorXd values(static_cast<std::size_t>(n_dof_ * n_vars_));
+  Eigen::VectorXd values(static_cast<size_t>(n_dof_ * n_vars_));
   for (const auto& position_var : position_vars_)
     values << coeffs_.cwiseProduct(this->GetVariables()->GetComponent(position_var->GetName())->GetValues());
 
@@ -130,7 +129,7 @@ void JointPosConstraint::FillJacobianBlock(std::string var_set, Jacobian& jac_bl
     if (var_set == position_vars_[static_cast<std::size_t>(i)]->GetName())  // NOLINT
     {
       // Reserve enough room in the sparse matrix
-      std::vector<Eigen::Triplet<double>> triplet_list;
+      std::vector<Eigen::Triplet<double> > triplet_list;
       triplet_list.reserve(static_cast<std::size_t>(n_dof_));
 
       // Each jac_block will be for a single variable but for all timesteps. Therefore we must index down to the

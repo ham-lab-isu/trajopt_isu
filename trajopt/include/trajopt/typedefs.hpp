@@ -2,9 +2,10 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <Eigen/Core>
+#include <map>
 #include <vector>
-#include <tesseract_visualization/fwd.h>
-#include <unordered_map>
+
+#include <tesseract_visualization/visualization.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_sco/modeling.hpp>
@@ -44,15 +45,14 @@ public:
   Plotter(Plotter&&) = default;
   Plotter& operator=(Plotter&&) = default;
 
-  virtual void Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter, const DblVec& x) = 0;
+  virtual void Plot(const tesseract_visualization::Visualization::Ptr& plotter, const DblVec& x) = 0;
 };
 
 /**  @brief Adds plotting to the VectorOfVector class in trajopt_sco */
 class TrajOptVectorOfVector : public sco::VectorOfVector
 {
 public:
-  virtual void Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter,
-                    const Eigen::VectorXd& dof_vals) = 0;
+  virtual void Plot(const tesseract_visualization::Visualization::Ptr& plotter, const Eigen::VectorXd& dof_vals) = 0;
 };
 
 /**  @brief Adds plotting to the CostFromErrFunc class in trajopt_sco */
@@ -80,12 +80,12 @@ public:
   {
   }
 
-  void Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter, const DblVec& x) override
+  void Plot(const tesseract_visualization::Visualization::Ptr& plotter, const DblVec& x) override
   {
     // If error function has a inherited from TrajOptVectorOfVector, call its Plot function
     if (auto* plt = dynamic_cast<TrajOptVectorOfVector*>(f_.get()))
     {
-      const Eigen::VectorXd dof_vals = sco::getVec(x, vars_);
+      Eigen::VectorXd dof_vals = sco::getVec(x, vars_);
       plt->Plot(plotter, dof_vals);
     }
   }
@@ -116,12 +116,12 @@ public:
   {
   }
 
-  void Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter, const DblVec& x) override
+  void Plot(const tesseract_visualization::Visualization::Ptr& plotter, const DblVec& x) override
   {
     // If error function has a inherited from TrajOptVectorOfVector, call its Plot function
     if (auto* plt = dynamic_cast<TrajOptVectorOfVector*>(f_.get()))
     {
-      const Eigen::VectorXd dof_vals = sco::getVec(x, vars_);
+      Eigen::VectorXd dof_vals = sco::getVec(x, vars_);
       plt->Plot(plotter, dof_vals);
     }
   }

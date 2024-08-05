@@ -3,14 +3,11 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <ctime>
 #include <gtest/gtest.h>
 #include <tesseract_common/types.h>
-#include <tesseract_common/resource_locator.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_scene_graph/scene_state.h>
 #include <tesseract_environment/environment.h>
 #include <tesseract_environment/utils.h>
-#include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
+#include <trajopt/common.hpp>
 #include <trajopt/plot_callback.hpp>
 #include <trajopt/problem_description.hpp>
 #include <trajopt_sco/optimizers.hpp>
@@ -39,34 +36,32 @@ public:
 
   void SetUp() override
   {
-    const tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
-    const tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
+    tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
+    tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
 
-    const ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
+    ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
     EXPECT_TRUE(env_->init(urdf_file, srdf_file, locator));
 
     gLogLevel = trajopt_common::LevelError;
   }
 };
 
-namespace
-{
-std::string toString(const Eigen::MatrixXd& mat)
+static std::string toString(const Eigen::MatrixXd& mat)
 {
   std::stringstream ss;
   ss << mat;
   return ss.str();
 }
 
-void checkJacobian(const sco::VectorOfVector& f,
-                   const sco::MatrixOfVector& dfdx,
-                   const Eigen::VectorXd& values,
-                   const double epsilon)
+static void checkJacobian(const sco::VectorOfVector& f,
+                          const sco::MatrixOfVector& dfdx,
+                          const Eigen::VectorXd& values,
+                          const double epsilon)
 {
-  const Eigen::MatrixXd numerical = sco::calcForwardNumJac(f, values, epsilon);
-  const Eigen::MatrixXd analytical = dfdx(values);
+  Eigen::MatrixXd numerical = sco::calcForwardNumJac(f, values, epsilon);
+  Eigen::MatrixXd analytical = dfdx(values);
 
-  const bool pass = numerical.isApprox(analytical, 1e-5);
+  bool pass = numerical.isApprox(analytical, 1e-5);
   EXPECT_TRUE(pass);
   if (!pass)
   {
@@ -74,25 +69,23 @@ void checkJacobian(const sco::VectorOfVector& f,
     CONSOLE_BRIDGE_logError("Analytical:\n %s", toString(analytical).c_str());
   }
 }
-}  // namespace
 
 TEST_F(KinematicCostsTest, CartPoseJacCalculator)  // NOLINT
 {
   CONSOLE_BRIDGE_logDebug("KinematicCostsTest, CartPoseJacCalculator");
 
-  const tesseract_kinematics::JointGroup::Ptr kin = env_->getJointGroup("right_arm");
+  tesseract_kinematics::JointGroup::Ptr kin = env_->getJointGroup("right_arm");
 
-  const std::string source_frame = env_->getRootLinkName();
-  const std::string target_frame = "r_gripper_tool_frame";
-  const Eigen::Isometry3d source_frame_offset = env_->getState().link_transforms.at(target_frame);
-  const Eigen::Isometry3d target_frame_offset =
-      Eigen::Isometry3d::Identity() * Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitZ());
+  std::string source_frame = env_->getRootLinkName();
+  std::string target_frame = "r_gripper_tool_frame";
+  Eigen::Isometry3d source_frame_offset = env_->getState().link_transforms.at(target_frame);
+  Eigen::Isometry3d target_frame_offset = Eigen::Isometry3d::Identity();
 
   Eigen::VectorXd values(7);
   values << -1.1, 1.2, -3.3, -1.4, 5.5, -1.6, 7.7;
 
-  const CartPoseErrCalculator f(kin, source_frame, target_frame, source_frame_offset, target_frame_offset);
-  const CartPoseJacCalculator dfdx(kin, source_frame, target_frame, source_frame_offset, target_frame_offset);
+  CartPoseErrCalculator f(kin, source_frame, target_frame, source_frame_offset, target_frame_offset);
+  CartPoseJacCalculator dfdx(kin, source_frame, target_frame, source_frame_offset, target_frame_offset);
   checkJacobian(f, dfdx, values, 1.0e-5);
 }
 
@@ -117,7 +110,7 @@ TEST_F(KinematicCostsTest, CartPoseJacCalculator)  // NOLINT
 //  Eigen::VectorXd values(15);
 //  values.setZero();
 //  std::vector<std::string> joint_names = kin->getJointNames();
-//  for (std::size_t i = 0; i < 15; ++i)
+//  for (size_t i = 0; i < 15; ++i)
 //  {
 //    if (joint_names[i] == "r_elbow_flex_joint" || joint_names[i] == "l_elbow_flex_joint")
 //      values(static_cast<long>(i)) = -0.15;

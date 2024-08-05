@@ -29,13 +29,13 @@ namespace trajopt_ifopt
 {
 SparseMatrix calcForwardNumJac(const ErrorCalculator& f, const Eigen::Ref<const Eigen::VectorXd>& x, double epsilon)
 {
-  const Eigen::VectorXd y = f(x);
+  Eigen::VectorXd y = f(x);
   Eigen::MatrixXd out(y.size(), x.size());
   Eigen::VectorXd x_perturbed = x;
   for (int i = 0; i < x.size(); ++i)
   {
     x_perturbed(i) = x(i) + epsilon;
-    const Eigen::VectorXd y_perturbed = f(x_perturbed);
+    Eigen::VectorXd y_perturbed = f(x_perturbed);
     out.col(i) = (y_perturbed - y) / epsilon;
     x_perturbed(i) = x(i);
   }

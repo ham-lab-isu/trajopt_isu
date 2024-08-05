@@ -3,24 +3,16 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <ctime>
 #include <gtest/gtest.h>
 #include <tesseract_common/types.h>
-#include <tesseract_common/resource_locator.h>
-#include <tesseract_scene_graph/link.h>
-#include <tesseract_scene_graph/joint.h>
-#include <tesseract_state_solver/state_solver.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_collision/core/continuous_contact_manager.h>
 #include <tesseract_environment/environment.h>
 #include <tesseract_environment/commands.h>
 #include <tesseract_environment/utils.h>
 #include <tesseract_geometry/impl/box.h>
 #include <tesseract_geometry/impl/octree.h>
-#include <tesseract_visualization/visualization.h>
-#include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt/collision_terms.hpp>
+#include <trajopt/common.hpp>
 #include <trajopt/plot_callback.hpp>
-#include <trajopt/utils.hpp>
 #include <trajopt/problem_description.hpp>
 #include <trajopt_sco/optimizers.hpp>
 #include <trajopt_common/config.hpp>
@@ -50,10 +42,10 @@ public:
 
   void SetUp() override
   {
-    const tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.urdf");
-    const tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.srdf");
+    tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.urdf");
+    tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/boxbot.srdf");
 
-    const ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
+    ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
     EXPECT_TRUE(env_->init(urdf_file, srdf_file, locator));
 
     gLogLevel = trajopt_common::LevelError;
@@ -113,7 +105,7 @@ void runLinkWithGeomTest(const Environment::Ptr& env, const Visualization::Ptr& 
 
   env->applyCommand(std::make_shared<ChangeLinkCollisionEnabledCommand>("box_attached", true));
 
-  const Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
+  Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
 
   std::unordered_map<std::string, double> ipos;
   ipos["boxbot_x_joint"] = -1.9;
@@ -122,12 +114,12 @@ void runLinkWithGeomTest(const Environment::Ptr& env, const Visualization::Ptr& 
 
   //  plotter_->plotScene();
 
-  const TrajOptProb::Ptr prob = ConstructProblem(root, env);
+  TrajOptProb::Ptr prob = ConstructProblem(root, env);
   ASSERT_TRUE(!!prob);
 
   std::vector<ContactResultMap> collisions;
-  const tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
-  const ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
+  tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
+  ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
 
   manager->setActiveCollisionObjects(prob->GetKin()->getActiveLinkNames());
   manager->setDefaultCollisionMarginData(0);
@@ -173,7 +165,7 @@ void runLinkWithoutGeomTest(const Environment::Ptr& env, const Visualization::Pt
 
   env->applyCommand(std::make_shared<ChangeLinkCollisionEnabledCommand>("box_attached2", true));
 
-  const Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
+  Json::Value root = readJsonFile(std::string(TRAJOPT_DATA_DIR) + "/config/box_cast_test.json");
 
   std::unordered_map<std::string, double> ipos;
   ipos["boxbot_x_joint"] = -1.9;
@@ -182,12 +174,12 @@ void runLinkWithoutGeomTest(const Environment::Ptr& env, const Visualization::Pt
 
   //  plotter_->plotScene();
 
-  const TrajOptProb::Ptr prob = ConstructProblem(root, env);
+  TrajOptProb::Ptr prob = ConstructProblem(root, env);
   ASSERT_TRUE(!!prob);
 
   std::vector<ContactResultMap> collisions;
-  const tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
-  const ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
+  tesseract_scene_graph::StateSolver::UPtr state_solver = prob->GetEnv()->getStateSolver();
+  ContinuousContactManager::Ptr manager = prob->GetEnv()->getContinuousContactManager();
 
   manager->setActiveCollisionObjects(prob->GetKin()->getActiveLinkNames());
   manager->setDefaultCollisionMarginData(0);

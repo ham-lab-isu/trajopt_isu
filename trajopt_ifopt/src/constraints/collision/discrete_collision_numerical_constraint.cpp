@@ -27,20 +27,20 @@
 
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <trajopt_common/collision_types.h>
+#include <tesseract_kinematics/core/utils.h>
+#include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_ifopt/constraints/collision/discrete_collision_numerical_constraint.h>
-#include <trajopt_ifopt/constraints/collision/discrete_collision_evaluators.h>
 #include <trajopt_ifopt/constraints/collision/weighted_average_methods.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 #include <trajopt_ifopt/utils/numeric_differentiation.h>
+#include <trajopt_common/collision_utils.h>
 
 namespace trajopt_ifopt
 {
 DiscreteCollisionNumericalConstraint::DiscreteCollisionNumericalConstraint(
-    std::shared_ptr<DiscreteCollisionEvaluator> collision_evaluator,
-    std::shared_ptr<const JointPosition> position_var,
+    DiscreteCollisionEvaluator::Ptr collision_evaluator,
+    JointPosition::ConstPtr position_var,
     int max_num_cnt,
     bool fixed_sparsity,
     const std::string& name)
@@ -71,7 +71,7 @@ DiscreteCollisionNumericalConstraint::DiscreteCollisionNumericalConstraint(
 Eigen::VectorXd DiscreteCollisionNumericalConstraint::GetValues() const
 {
   // Get current joint values
-  const Eigen::VectorXd joint_vals = this->GetVariables()->GetComponent(position_var_->GetName())->GetValues();
+  Eigen::VectorXd joint_vals = this->GetVariables()->GetComponent(position_var_->GetName())->GetValues();
 
   return CalcValues(joint_vals);
 }
@@ -86,7 +86,7 @@ void DiscreteCollisionNumericalConstraint::FillJacobianBlock(std::string var_set
     return;
 
   // Get current joint values
-  const VectorXd joint_vals = this->GetVariables()->GetComponent(position_var_->GetName())->GetValues();
+  VectorXd joint_vals = this->GetVariables()->GetComponent(position_var_->GetName())->GetValues();
 
   CalcJacobianBlock(joint_vals, jac_block);  // NOLINT
 }
@@ -96,7 +96,7 @@ DiscreteCollisionNumericalConstraint::CalcValues(const Eigen::Ref<const Eigen::V
 {
   // Check the collisions
   auto collision_data = collision_evaluator_->CalcCollisions(joint_vals, bounds_.size());
-  const double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
+  double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
   Eigen::VectorXd values = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(bounds_.size()), -margin_buffer);
 
   if (collision_data->gradient_results_sets.empty())
@@ -131,10 +131,10 @@ void DiscreteCollisionNumericalConstraint::CalcJacobianBlock(const Eigen::Ref<co
 
   const std::size_t cnt = std::min(bounds_.size(), collision_data->gradient_results_sets.size());
 
-  const double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
+  double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
 
   Eigen::VectorXd jv = joint_vals;
-  const double delta = 1e-8;
+  double delta = 1e-8;
   for (int j = 0; j < n_dof_; j++)
   {
     jv(j) = joint_vals(j) + delta;
@@ -150,12 +150,12 @@ void DiscreteCollisionNumericalConstraint::CalcJacobianBlock(const Eigen::Ref<co
           collision_data_delta->gradient_results_sets.begin(), collision_data_delta->gradient_results_sets.end(), fn);
       if (it != collision_data_delta->gradient_results_sets.end())
       {
-        const double dist_delta = baseline.coeff * (it->getMaxErrorT0() - baseline.getMaxErrorT0());
+        double dist_delta = baseline.coeff * (it->getMaxErrorT0() - baseline.getMaxErrorT0());
         jac_block.coeffRef(i, j) = dist_delta / delta;
       }
       else
       {
-        const double dist_delta = baseline.coeff * ((-1.0 * margin_buffer) - baseline.getMaxErrorT0());
+        double dist_delta = baseline.coeff * ((-1.0 * margin_buffer) - baseline.getMaxErrorT0());
         jac_block.coeffRef(i, j) = dist_delta / delta;
       }
     }
@@ -173,12 +173,12 @@ void DiscreteCollisionNumericalConstraint::CalcJacobianBlock(const Eigen::Ref<co
   //        jac_block_debug.coeffRef(static_cast<int>(i), j) = -1.0 * grad_vec[j];
   //      ++i;
   //    }
-  //    std::cout << "Numerical Jacobian:" << '\n' << jac_block << '\n';
-  //    std::cout << "Col Grad Jacobian:" << '\n' << jac_block_debug << '\n';
+  //    std::cout << "Numerical Jacobian:" << std::endl << jac_block << std::endl;
+  //    std::cout << "Col Grad Jacobian:" << std::endl << jac_block_debug << std::endl;
   //    //#endif
 }
 
-std::shared_ptr<DiscreteCollisionEvaluator> DiscreteCollisionNumericalConstraint::GetCollisionEvaluator() const
+DiscreteCollisionEvaluator::Ptr DiscreteCollisionNumericalConstraint::GetCollisionEvaluator() const
 {
   return collision_evaluator_;
 }

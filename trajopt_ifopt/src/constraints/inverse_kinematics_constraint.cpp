@@ -24,34 +24,19 @@
  * limitations under the License.
  */
 #include <trajopt_ifopt/constraints/inverse_kinematics_constraint.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <tesseract_kinematics/core/kinematic_group.h>
+#include <tesseract_kinematics/core/utils.h>
 #include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 namespace trajopt_ifopt
 {
-InverseKinematicsInfo::InverseKinematicsInfo(std::shared_ptr<const tesseract_kinematics::KinematicGroup> manip,
-                                             std::string working_frame,
-                                             std::string tcp_frame,
-                                             const Eigen::Isometry3d& tcp_offset)  // NOLINT(modernize-pass-by-value)
-  : manip(std::move(manip))
-  , working_frame(std::move(working_frame))
-  , tcp_frame(std::move(tcp_frame))
-  , tcp_offset(tcp_offset)
-{
-  if (!this->manip->hasLinkName(this->tcp_frame))
-    throw std::runtime_error("Link name '" + this->tcp_frame + "' provided does not exist.");
-}
-
-InverseKinematicsConstraint::InverseKinematicsConstraint(
-    const Eigen::Isometry3d& target_pose,  // NOLINT(modernize-pass-by-value)
-    InverseKinematicsInfo::ConstPtr kinematic_info,
-    std::shared_ptr<const JointPosition> constraint_var,
-    std::shared_ptr<const JointPosition> seed_var,
-    const std::string& name)
+InverseKinematicsConstraint::InverseKinematicsConstraint(const Eigen::Isometry3d& target_pose,
+                                                         InverseKinematicsInfo::ConstPtr kinematic_info,
+                                                         JointPosition::ConstPtr constraint_var,
+                                                         JointPosition::ConstPtr seed_var,
+                                                         const std::string& name)
   : ifopt::ConstraintSet(constraint_var->GetRows(), name)
   , constraint_var_(std::move(constraint_var))
   , seed_var_(std::move(seed_var))
@@ -75,7 +60,7 @@ InverseKinematicsConstraint::CalcValues(const Eigen::Ref<const Eigen::VectorXd>&
   tesseract_kinematics::KinGroupIKInputs inputs;
   inputs.emplace_back(target_pose_, kinematic_info_->working_frame, kinematic_info_->tcp_frame);
 
-  const tesseract_kinematics::IKSolutions target_joint_position =
+  tesseract_kinematics::IKSolutions target_joint_position =
       kinematic_info_->manip->calcInvKin(inputs, seed_joint_position);
   assert(!target_joint_position.empty());
 
@@ -84,8 +69,8 @@ InverseKinematicsConstraint::CalcValues(const Eigen::Ref<const Eigen::VectorXd>&
   double error_norm = std::numeric_limits<double>::max();
   for (const auto& sol : target_joint_position)
   {
-    const Eigen::VectorXd cur_error = sol - joint_vals;
-    const double cur_error_norm = cur_error.norm();
+    Eigen::VectorXd cur_error = sol - joint_vals;
+    double cur_error_norm = cur_error.norm();
     if (cur_error_norm < error_norm)
     {
       error_norm = cur_error_norm;
@@ -98,8 +83,8 @@ InverseKinematicsConstraint::CalcValues(const Eigen::Ref<const Eigen::VectorXd>&
 Eigen::VectorXd InverseKinematicsConstraint::GetValues() const
 {
   // Get the two variables
-  const Eigen::VectorXd seed_joint_position = this->GetVariables()->GetComponent(seed_var_->GetName())->GetValues();
-  const Eigen::VectorXd joint_vals = this->GetVariables()->GetComponent(constraint_var_->GetName())->GetValues();
+  Eigen::VectorXd seed_joint_position = this->GetVariables()->GetComponent(seed_var_->GetName())->GetValues();
+  Eigen::VectorXd joint_vals = this->GetVariables()->GetComponent(constraint_var_->GetName())->GetValues();
 
   return CalcValues(joint_vals, seed_joint_position);
 }

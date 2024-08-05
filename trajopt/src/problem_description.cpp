@@ -2,17 +2,15 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <boost/algorithm/string.hpp>
 #include <json/json.h>
-#include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt/json_marshal.hpp>
 #include <trajopt/collision_terms.hpp>
+#include <trajopt/common.hpp>
 #include <trajopt/kinematic_terms.hpp>
 #include <trajopt/plot_callback.hpp>
 #include <trajopt/problem_description.hpp>
 #include <trajopt/trajectory_costs.hpp>
-#include <trajopt/utils.hpp>
-
 #include <trajopt_sco/expr_op_overloads.hpp>
 #include <trajopt_sco/expr_ops.hpp>
 #include <trajopt_common/eigen_conversions.hpp>
@@ -20,9 +18,7 @@ TRAJOPT_IGNORE_WARNINGS_POP
 #include <trajopt_common/logging.hpp>
 #include <trajopt_common/vector_ops.hpp>
 
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_environment/environment.h>
-#include <tesseract_visualization/visualization.h>
+#include <tesseract_kinematics/kdl/kdl_fwd_kin_chain.h>
 
 namespace
 {
@@ -35,7 +31,7 @@ void ensure_only_members(const Json::Value& v, const char** fields, int nvalid)
     bool valid = false;
     for (int j = 0; j < nvalid; ++j)
     {
-      const JSONCPP_STRING member_name = it.name();
+      JSONCPP_STRING member_name = it.name();
       if (strcmp(member_name.c_str(), fields[j]) == 0)
       {
         valid = true;
@@ -111,7 +107,7 @@ TermInfo::Ptr TermInfo::fromName(const std::string& type)
     return (*name2maker[type])();
 
   // RAVELOG_ERROR("There is no cost of type %s\n", type.c_str());
-  return {};
+  return TermInfo::Ptr();
 }
 
 void ProblemConstructionInfo::readBasicInfo(const Json::Value& v)
@@ -165,22 +161,22 @@ void ProblemConstructionInfo::readCosts(const Json::Value& v)
   for (const auto& it : v)
   {
     std::string type;
-    bool use_time{ false };
+    bool use_time;
     json_marshal::childFromJson(it, type, "type");
     json_marshal::childFromJson(it, use_time, "use_time", false);
     LOG_DEBUG("reading term: %s", type.c_str());
-    const TermInfo::Ptr term = TermInfo::fromName(type);
+    TermInfo::Ptr term = TermInfo::fromName(type);
 
     if (!term)
       PRINT_AND_THROW(boost::format("failed to construct cost named %s") % type);
 
     if (use_time)
     {
-      term->term_type = (TermType::TT_COST | TermType::TT_USE_TIME);
+      term->term_type = TT_COST | TT_USE_TIME;
       basic_info.use_time = true;
     }
     else
-      term->term_type = (TermType::TT_COST);
+      term->term_type = TT_COST;
     term->fromJson(*this, it);
     json_marshal::childFromJson(it, term->name, "name", type);
 
@@ -195,22 +191,22 @@ void ProblemConstructionInfo::readConstraints(const Json::Value& v)
   for (const auto& it : v)
   {
     std::string type;
-    bool use_time{ false };
+    bool use_time;
     json_marshal::childFromJson(it, type, "type");
     json_marshal::childFromJson(it, use_time, "use_time", false);
     LOG_DEBUG("reading term: %s", type.c_str());
-    const TermInfo::Ptr term = TermInfo::fromName(type);
+    TermInfo::Ptr term = TermInfo::fromName(type);
 
     if (!term)
       PRINT_AND_THROW(boost::format("failed to construct constraint named %s") % type);
 
     if (use_time)
     {
-      term->term_type = (TermType::TT_CNT | TermType::TT_USE_TIME);
+      term->term_type = (TT_CNT | TT_USE_TIME);
       basic_info.use_time = true;
     }
     else
-      term->term_type = (TermType::TT_CNT);
+      term->term_type = (TT_CNT);
     term->fromJson(*this, it);
     json_marshal::childFromJson(it, term->name, "name", type);
 
@@ -223,7 +219,7 @@ void ProblemConstructionInfo::readInitInfo(const Json::Value& v)
   std::string type_str;
   json_marshal::childFromJson(v, type_str, "type");
   json_marshal::childFromJson(v, init_info.dt, "dt", 1.0);
-  const int n_steps = basic_info.n_steps;
+  int n_steps = basic_info.n_steps;
   auto n_dof = static_cast<int>(kin->numJoints());
 
   if (boost::iequals(type_str, "stationary"))
@@ -243,7 +239,7 @@ void ProblemConstructionInfo::readInitInfo(const Json::Value& v)
     for (int i = 0; i < n_steps; ++i)
     {
       DblVec row;
-      json_marshal::fromJsonArray(vdata[i], row, n_dof);
+      json_marshal::fromJsonArray(vdata[i], row, static_cast<int>(n_dof));
       init_info.data.row(i) = trajopt_common::toVectorXd(row);
     }
   }
@@ -415,29 +411,27 @@ TrajOptProb::Ptr ConstructProblem(const ProblemConstructionInfo& pci)
   // Check that all costs and constraints support the types that are specified in pci
   for (const TermInfo::Ptr& cost : pci.cost_infos)
   {
-    if (static_cast<bool>(cost->term_type & TermType::TT_CNT))
-      CONSOLE_BRIDGE_logWarn("%s is listed as a type TermType::TT_CNT but was added to cost_infos",
-                             (cost->name).c_str());
-    if (!static_cast<bool>(cost->getSupportedTypes() & TermType::TT_COST))
+    if (cost->term_type & TT_CNT)
+      CONSOLE_BRIDGE_logWarn("%s is listed as a type TT_CNT but was added to cost_infos", (cost->name).c_str());
+    if (!(cost->getSupportedTypes() & TT_COST))
       PRINT_AND_THROW(boost::format("%s is only a constraint, but you listed it as a cost") % cost->name);
-    if (static_cast<bool>(cost->term_type & TermType::TT_USE_TIME))
+    if (cost->term_type & TT_USE_TIME)
     {
       use_time = true;
-      if (!static_cast<bool>(cost->getSupportedTypes() & TermType::TT_USE_TIME))
+      if (!(cost->getSupportedTypes() & TT_USE_TIME))
         PRINT_AND_THROW(boost::format("%s does not support time, but you listed it as a using time") % cost->name);
     }
   }
   for (const TermInfo::Ptr& cnt : pci.cnt_infos)
   {
-    if (static_cast<bool>(cnt->term_type & TermType::TT_COST))
-      CONSOLE_BRIDGE_logWarn("%s is listed as a type TermType::TT_COST but was added to cnt_infos",
-                             (cnt->name).c_str());
-    if (!static_cast<bool>(cnt->getSupportedTypes() & TermType::TT_CNT))
+    if (cnt->term_type & TT_COST)
+      CONSOLE_BRIDGE_logWarn("%s is listed as a type TT_COST but was added to cnt_infos", (cnt->name).c_str());
+    if (!(cnt->getSupportedTypes() & TT_CNT))
       PRINT_AND_THROW(boost::format("%s is only a cost, but you listed it as a constraint") % cnt->name);
-    if (static_cast<bool>(cnt->term_type & TermType::TT_USE_TIME))
+    if (cnt->term_type & TT_USE_TIME)
     {
       use_time = true;
-      if (!static_cast<bool>(cnt->getSupportedTypes() & TermType::TT_USE_TIME))
+      if (!(cnt->getSupportedTypes() & TT_USE_TIME))
         PRINT_AND_THROW(boost::format("%s does not support time, but you listed it as a using time") % cnt->name);
     }
   }
@@ -553,7 +547,7 @@ TrajOptProb::TrajOptProb(int n_steps, const ProblemConstructionInfo& pci)
   : OptProb(pci.basic_info.convex_solver, pci.basic_info.convex_solver_config), m_kin(pci.kin), m_env(pci.env)
 {
   const Eigen::MatrixX2d& limits = m_kin->getLimits().joint_limits;
-  auto n_dof = m_kin->numJoints();
+  auto n_dof = static_cast<int>(m_kin->numJoints());
   Eigen::VectorXd lower, upper;
   lower = limits.col(0);
   upper = limits.col(1);
@@ -587,7 +581,7 @@ TrajOptProb::TrajOptProb(int n_steps, const ProblemConstructionInfo& pci)
     }
   }
   sco::VarVector trajvarvec = createVariables(names, vlower, vupper);
-  m_traj_vars = VarArray(n_steps, static_cast<int>(n_dof) + (pci.basic_info.use_time ? 1 : 0), trajvarvec.data());
+  m_traj_vars = VarArray(n_steps, n_dof + (pci.basic_info.use_time ? 1 : 0), trajvarvec.data());
 }
 
 void UserDefinedTermInfo::fromJson(ProblemConstructionInfo& /*pci*/, const Json::Value& /*v*/)
@@ -597,10 +591,10 @@ void UserDefinedTermInfo::fromJson(ProblemConstructionInfo& /*pci*/, const Json:
 
 void UserDefinedTermInfo::hatch(TrajOptProb& prob)
 {
-  const int n_dof = static_cast<int>(prob.GetKin()->numJoints());
+  int n_dof = static_cast<int>(prob.GetKin()->numJoints());
 
   // Apply error calculator as either cost or constraint
-  if (static_cast<bool>(term_type & TermType::TT_COST))
+  if (term_type & TT_COST)
   {
     for (int s = first_step; s <= last_step; ++s)
     {
@@ -638,13 +632,13 @@ void UserDefinedTermInfo::hatch(TrajOptProb& prob)
       }
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT))
+  else if (term_type & TT_CNT)
   {
     for (int s = first_step; s <= last_step; ++s)
     {
       if (std::find(fixed_steps.begin(), fixed_steps.end(), s) == fixed_steps.end())
       {
-        const std::string type_str = (constraint_type == sco::ConstraintType::EQ) ? "EQ" : "INEQ";
+        std::string type_str = (constraint_type == sco::ConstraintType::EQ) ? "EQ" : "INEQ";
         if (jacobian_function == nullptr)
         {
           prob.addConstraint(
@@ -673,7 +667,7 @@ void UserDefinedTermInfo::hatch(TrajOptProb& prob)
   }
 }
 
-DynamicCartPoseTermInfo::DynamicCartPoseTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT)
+DynamicCartPoseTermInfo::DynamicCartPoseTermInfo() : TermInfo(TT_COST | TT_CNT)
 {
   pos_coeffs = Eigen::Vector3d::Ones();
   rot_coeffs = Eigen::Vector3d::Ones();
@@ -702,17 +696,17 @@ void DynamicCartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json:
   json_marshal::childFromJson(
       params, target_frame_offset_wxyz, "target_frame_offset_wxyz", Eigen::Vector4d(1, 0, 0, 0));
 
-  const Eigen::Quaterniond q(source_frame_offset_wxyz(0),
-                             source_frame_offset_wxyz(1),
-                             source_frame_offset_wxyz(2),
-                             source_frame_offset_wxyz(3));
+  Eigen::Quaterniond q(source_frame_offset_wxyz(0),
+                       source_frame_offset_wxyz(1),
+                       source_frame_offset_wxyz(2),
+                       source_frame_offset_wxyz(3));
   source_frame_offset.linear() = q.matrix();
   source_frame_offset.translation() = source_frame_offset_xyz;
 
-  const Eigen::Quaterniond target_q(target_frame_offset_wxyz(0),
-                                    target_frame_offset_wxyz(1),
-                                    target_frame_offset_wxyz(2),
-                                    target_frame_offset_wxyz(3));
+  Eigen::Quaterniond target_q(target_frame_offset_wxyz(0),
+                              target_frame_offset_wxyz(1),
+                              target_frame_offset_wxyz(2),
+                              target_frame_offset_wxyz(3));
   target_frame_offset.linear() = target_q.matrix();
   target_frame_offset.translation() = target_frame_offset_xyz;
 
@@ -726,8 +720,8 @@ void DynamicCartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json:
     PRINT_AND_THROW(boost::format("invalid target frame: %s") % target_frame);
   }
 
-  const bool source_active = pci.kin->isActiveLinkName(source_frame);
-  const bool target_active = pci.kin->isActiveLinkName(target_frame);
+  bool source_active = pci.kin->isActiveLinkName(source_frame);
+  bool target_active = pci.kin->isActiveLinkName(target_frame);
 
   if (!(source_active && target_active))
   {
@@ -749,7 +743,7 @@ void DynamicCartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json:
 
 void DynamicCartPoseTermInfo::hatch(TrajOptProb& prob)
 {
-  const int n_dof = static_cast<int>(prob.GetKin()->numJoints());
+  int n_dof = static_cast<int>(prob.GetKin()->numJoints());
 
   // Next parse the coeff and if not zero add the indice and coeff
   std::vector<int> ic;
@@ -777,34 +771,29 @@ void DynamicCartPoseTermInfo::hatch(TrajOptProb& prob)
   Eigen::VectorXi indices = Eigen::Map<Eigen::VectorXi>(ic.data(), static_cast<long>(ic.size()));
   Eigen::VectorXd coeff = Eigen::Map<Eigen::VectorXd>(c.data(), static_cast<long>(c.size()));
 
-  if (static_cast<bool>(term_type & TermType::TT_USE_TIME))
+  if (term_type & TT_USE_TIME)
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
   else
   {
-    auto f = std::make_shared<DynamicCartPoseErrCalculator>(prob.GetKin(),
-                                                            source_frame,
-                                                            target_frame,
-                                                            source_frame_offset,
-                                                            target_frame_offset,
-                                                            indices,
-                                                            lower_tolerance,
-                                                            upper_tolerance);
+    auto f = std::make_shared<DynamicCartPoseErrCalculator>(
+        prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
 
+    // This is currently not being used. There is an intermittent bug that needs to be tracked down it is not used.
     auto dfdx = std::make_shared<DynamicCartPoseJacCalculator>(
         prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
 
     // Apply error calculator as either cost or constraint
-    if (static_cast<bool>(term_type & TermType::TT_COST))
+    if (term_type & TT_COST)
     {
       prob.addCost(
-          std::make_shared<TrajOptCostFromErrFunc>(f, dfdx, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::ABS, name));
+          std::make_shared<TrajOptCostFromErrFunc>(f, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::ABS, name));
     }
-    else if (static_cast<bool>(term_type & TermType::TT_CNT))
+    else if (term_type & TT_CNT)
     {
-      prob.addConstraint(std::make_shared<TrajOptConstraintFromErrFunc>(
-          f, dfdx, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::EQ, name));
+      prob.addConstraint(
+          std::make_shared<TrajOptConstraintFromErrFunc>(f, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::EQ, name));
     }
     else
     {
@@ -814,7 +803,7 @@ void DynamicCartPoseTermInfo::hatch(TrajOptProb& prob)
   }
 }
 
-CartPoseTermInfo::CartPoseTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT)
+CartPoseTermInfo::CartPoseTermInfo() : TermInfo(TT_COST | TT_CNT)
 {
   pos_coeffs = Eigen::Vector3d::Ones();
   rot_coeffs = Eigen::Vector3d::Ones();
@@ -843,17 +832,17 @@ void CartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
   json_marshal::childFromJson(
       params, target_frame_offset_wxyz, "target_frame_offset_wxyz", Eigen::Vector4d(1, 0, 0, 0));
 
-  const Eigen::Quaterniond q(source_frame_offset_wxyz(0),
-                             source_frame_offset_wxyz(1),
-                             source_frame_offset_wxyz(2),
-                             source_frame_offset_wxyz(3));
+  Eigen::Quaterniond q(source_frame_offset_wxyz(0),
+                       source_frame_offset_wxyz(1),
+                       source_frame_offset_wxyz(2),
+                       source_frame_offset_wxyz(3));
   source_frame_offset.linear() = q.matrix();
   source_frame_offset.translation() = source_frame_offset_xyz;
 
-  const Eigen::Quaterniond target_q(target_frame_offset_wxyz(0),
-                                    target_frame_offset_wxyz(1),
-                                    target_frame_offset_wxyz(2),
-                                    target_frame_offset_wxyz(3));
+  Eigen::Quaterniond target_q(target_frame_offset_wxyz(0),
+                              target_frame_offset_wxyz(1),
+                              target_frame_offset_wxyz(2),
+                              target_frame_offset_wxyz(3));
   target_frame_offset.linear() = target_q.matrix();
   target_frame_offset.translation() = target_frame_offset_xyz;
 
@@ -867,8 +856,8 @@ void CartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
     PRINT_AND_THROW(boost::format("invalid target frame: %s") % target_frame);
   }
 
-  const bool source_active = pci.kin->isActiveLinkName(source_frame);
-  const bool target_active = pci.kin->isActiveLinkName(target_frame);
+  bool source_active = pci.kin->isActiveLinkName(source_frame);
+  bool target_active = pci.kin->isActiveLinkName(target_frame);
   if (source_active && target_active)
   {
     PRINT_AND_THROW(boost::format("source '%s' and target '%s' are both active") % source_frame % target_frame);
@@ -893,7 +882,7 @@ void CartPoseTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
 
 void CartPoseTermInfo::hatch(TrajOptProb& prob)
 {
-  const int n_dof = static_cast<int>(prob.GetKin()->numJoints());
+  int n_dof = static_cast<int>(prob.GetKin()->numJoints());
 
   // Next parse the coeff and if not zero add the index and coeff
   std::vector<int> ic;
@@ -921,45 +910,35 @@ void CartPoseTermInfo::hatch(TrajOptProb& prob)
   Eigen::VectorXi indices = Eigen::Map<Eigen::VectorXi>(ic.data(), static_cast<long>(ic.size()));
   Eigen::VectorXd coeff = Eigen::Map<Eigen::VectorXd>(c.data(), static_cast<long>(c.size()));
 
-  if (term_type == (TermType::TT_COST | TermType::TT_USE_TIME))
+  if (term_type == (TT_COST | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (term_type == (TermType::TT_CNT | TermType::TT_USE_TIME))
+  else if (term_type == (TT_CNT | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (static_cast<bool>(term_type & TermType::TT_COST) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_COST) && ~(term_type | ~TT_USE_TIME))
   {
-    auto f = std::make_shared<CartPoseErrCalculator>(prob.GetKin(),
-                                                     source_frame,
-                                                     target_frame,
-                                                     source_frame_offset,
-                                                     target_frame_offset,
-                                                     indices,
-                                                     lower_tolerance,
-                                                     upper_tolerance);
+    auto f = std::make_shared<CartPoseErrCalculator>(
+        prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
 
+    // This is currently not being used. There is an intermittent bug that needs to be tracked down it is not used.
     auto dfdx = std::make_shared<CartPoseJacCalculator>(
         prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
     prob.addCost(
-        std::make_shared<TrajOptCostFromErrFunc>(f, dfdx, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::ABS, name));
+        std::make_shared<TrajOptCostFromErrFunc>(f, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::ABS, name));
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_CNT) && ~(term_type | ~TT_USE_TIME))
   {
-    auto f = std::make_shared<CartPoseErrCalculator>(prob.GetKin(),
-                                                     source_frame,
-                                                     target_frame,
-                                                     source_frame_offset,
-                                                     target_frame_offset,
-                                                     indices,
-                                                     lower_tolerance,
-                                                     upper_tolerance);
+    auto f = std::make_shared<CartPoseErrCalculator>(
+        prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
 
+    // This is currently not being used. There is an intermittent bug that needs to be tracked down it is not used.
     auto dfdx = std::make_shared<CartPoseJacCalculator>(
         prob.GetKin(), source_frame, target_frame, source_frame_offset, target_frame_offset, indices);
-    prob.addConstraint(std::make_shared<TrajOptConstraintFromErrFunc>(
-        f, dfdx, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::EQ, name));
+    prob.addConstraint(
+        std::make_shared<TrajOptConstraintFromErrFunc>(f, prob.GetVarRow(timestep, 0, n_dof), coeff, sco::EQ, name));
   }
   else
   {
@@ -991,17 +970,17 @@ void CartVelTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value& 
 
 void CartVelTermInfo::hatch(TrajOptProb& prob)
 {
-  const int n_dof = static_cast<int>(prob.GetKin()->numJoints());
+  int n_dof = static_cast<int>(prob.GetKin()->numJoints());
 
-  if (term_type == (TermType::TT_COST | TermType::TT_USE_TIME))
+  if (term_type == (TT_COST | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (term_type == (TermType::TT_CNT | TermType::TT_USE_TIME))
+  else if (term_type == (TT_CNT | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (static_cast<bool>(term_type & TermType::TT_COST) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_COST) && ~(term_type | ~TT_USE_TIME))
   {
     for (int iStep = first_step; iStep <= last_step; ++iStep)
     {
@@ -1016,7 +995,7 @@ void CartVelTermInfo::hatch(TrajOptProb& prob)
           name));
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_CNT) && ~(term_type | ~TT_USE_TIME))
   {
     for (int iStep = first_step; iStep <= last_step; ++iStep)
     {
@@ -1042,7 +1021,7 @@ void JointPosTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
   FAIL_IF_FALSE(v.isMember("params"));
   const Json::Value& params = v["params"];
 
-  const unsigned int n_dof = pci.kin->numJoints();
+  unsigned int n_dof = pci.kin->numJoints();
   json_marshal::childFromJson(params, targets, "targets");
 
   // Optional Parameters
@@ -1058,7 +1037,7 @@ void JointPosTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
 
 void JointPosTermInfo::hatch(TrajOptProb& prob)
 {
-  const unsigned int n_dof = prob.GetKin()->numJoints();
+  unsigned int n_dof = prob.GetKin()->numJoints();
 
   // If optional parameter not given, set to default
   if (coeffs.empty())
@@ -1079,7 +1058,7 @@ void JointPosTermInfo::hatch(TrajOptProb& prob)
   //    last_step += 1;
   if (last_step < first_step)
   {
-    const int tmp = first_step;
+    int tmp = first_step;
     first_step = last_step;
     last_step = tmp;
     CONSOLE_BRIDGE_logWarn("Last time step for JointPosTerm comes before first step. Reversing them.");
@@ -1089,23 +1068,23 @@ void JointPosTermInfo::hatch(TrajOptProb& prob)
 
   // Check if parameters are the correct size.
   checkParameterSize(coeffs, n_dof, "JointPosTermInfo coeffs", true);
-  checkParameterSize(targets, n_dof, "JointPosTermInfo targets", true);
+  checkParameterSize(targets, n_dof, "JointPosTermInfo upper_tols", true);
   checkParameterSize(upper_tols, n_dof, "JointPosTermInfo upper_tols", true);
   checkParameterSize(lower_tols, n_dof, "JointPosTermInfo lower_tols", true);
 
   // Check if tolerances are all zeros
-  const bool is_upper_zeros =
+  bool is_upper_zeros =
       std::all_of(upper_tols.begin(), upper_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
-  const bool is_lower_zeros =
+  bool is_lower_zeros =
       std::all_of(lower_tols.begin(), lower_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
 
   // Get vars associated with joints
-  const trajopt::VarArray vars = prob.GetVars();
+  trajopt::VarArray vars = prob.GetVars();
   trajopt::VarArray joint_vars = vars.block(0, 0, vars.rows(), static_cast<int>(n_dof));
   if (prob.GetHasTime())
-    CONSOLE_BRIDGE_logInform("JointPosTermInfo does not differ based on setting of TermType::TT_USE_TIME");
+    CONSOLE_BRIDGE_logInform("JointPosTermInfo does not differ based on setting of TT_USE_TIME");
 
-  if (static_cast<bool>(term_type & TermType::TT_COST))
+  if (term_type & TT_COST)
   {
     // If the tolerances are 0, an equality cost is set. Otherwise it's a hinged "inequality" cost
     if (is_upper_zeros && is_lower_zeros)
@@ -1127,7 +1106,7 @@ void JointPosTermInfo::hatch(TrajOptProb& prob)
       prob.getCosts().back()->setName(name);
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT))
+  else if (term_type & TT_CNT)
   {
     // If the tolerances are 0, an equality cnt is set. Otherwise it's an inequality constraint
     if (is_upper_zeros && is_lower_zeros)
@@ -1161,7 +1140,7 @@ void JointVelTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
   FAIL_IF_FALSE(v.isMember("params"));
   const Json::Value& params = v["params"];
 
-  const unsigned int n_dof = pci.kin->numJoints();
+  unsigned int n_dof = pci.kin->numJoints();
   json_marshal::childFromJson(params, targets, "targets");
 
   // Optional Parameters
@@ -1177,7 +1156,7 @@ void JointVelTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
 
 void JointVelTermInfo::hatch(TrajOptProb& prob)
 {
-  const unsigned int n_dof = prob.GetKin()->numJoints();
+  unsigned int n_dof = prob.GetKin()->numJoints();
 
   // If optional parameter not given, set to default
   if (coeffs.empty())
@@ -1198,7 +1177,7 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
     last_step += 1;
   if (last_step < first_step)
   {
-    const int tmp = first_step;
+    int tmp = first_step;
     first_step = last_step;
     last_step = tmp;
     CONSOLE_BRIDGE_logWarn("Last time step for JointVelTerm comes before first step. Reversing them.");
@@ -1213,31 +1192,30 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
   assert(first_step >= 0);
 
   // Check if tolerances are all zeros
-  const bool is_upper_zeros =
+  bool is_upper_zeros =
       std::all_of(upper_tols.begin(), upper_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
-  const bool is_lower_zeros =
+  bool is_lower_zeros =
       std::all_of(lower_tols.begin(), lower_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
 
   // Get vars associated with joints
-  const trajopt::VarArray vars = prob.GetVars();
+  trajopt::VarArray vars = prob.GetVars();
   trajopt::VarArray joint_vars = vars.block(0, 0, vars.rows(), static_cast<int>(n_dof));
 
-  if (term_type == (TermType::TT_COST | TermType::TT_USE_TIME))
+  if (term_type == (TT_COST | TT_USE_TIME))
   {
-    auto num_vels = static_cast<std::size_t>(last_step - first_step);
+    auto num_vels = static_cast<unsigned>(last_step - first_step);
 
     // Apply seperate cost to each joint b/c that is how the error function is currently written
-    for (std::size_t j = 0; j < n_dof; j++)
+    for (size_t j = 0; j < n_dof; j++)
     {
       // Get a vector of a single column of vars
-      const sco::VarVector joint_vars_vec =
-          joint_vars.cblock(first_step, static_cast<int>(j), last_step - first_step + 1);
-      const sco::VarVector time_vars_vec = vars.cblock(first_step, vars.cols() - 1, last_step - first_step + 1);
+      sco::VarVector joint_vars_vec = joint_vars.cblock(first_step, static_cast<int>(j), last_step - first_step + 1);
+      sco::VarVector time_vars_vec = vars.cblock(first_step, vars.cols() - 1, last_step - first_step + 1);
 
       // If the tolerances are 0, an equality cost is set
       if (is_upper_zeros && is_lower_zeros)
       {
-        const DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
+        DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
         auto f = std::make_shared<JointVelErrCalculator>(targets[j], upper_tols[j], lower_tols[j]);
         auto dfdx = std::make_shared<JointVelJacCalculator>();
         prob.addCost(std::make_shared<TrajOptCostFromErrFunc>(f,
@@ -1250,7 +1228,7 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
       // Otherwise it's a hinged "inequality" cost
       else
       {
-        const DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
+        DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
         auto f = std::make_shared<JointVelErrCalculator>(targets[j], upper_tols[j], lower_tols[j]);
         auto dfdx = std::make_shared<JointVelJacCalculator>();
         prob.addCost(std::make_shared<TrajOptCostFromErrFunc>(f,
@@ -1262,22 +1240,21 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
       }
     }
   }
-  else if (term_type == (TermType::TT_CNT | TermType::TT_USE_TIME))
+  else if (term_type == (TT_CNT | TT_USE_TIME))
   {
-    auto num_vels = static_cast<std::size_t>(last_step - first_step);
+    auto num_vels = static_cast<unsigned>(last_step - first_step);
 
     // Apply seperate cnt to each joint b/c that is how the error function is currently written
-    for (std::size_t j = 0; j < n_dof; j++)
+    for (size_t j = 0; j < n_dof; j++)
     {
       // Get a vector of a single column of vars
-      const sco::VarVector joint_vars_vec =
-          joint_vars.cblock(first_step, static_cast<int>(j), last_step - first_step + 1);
-      const sco::VarVector time_vars_vec = vars.cblock(first_step, vars.cols() - 1, last_step - first_step + 1);
+      sco::VarVector joint_vars_vec = joint_vars.cblock(first_step, static_cast<int>(j), last_step - first_step + 1);
+      sco::VarVector time_vars_vec = vars.cblock(first_step, vars.cols() - 1, last_step - first_step + 1);
 
       // If the tolerances are 0, an equality cnt is set
       if (is_upper_zeros && is_lower_zeros)
       {
-        const DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
+        DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
         auto f = std::make_shared<JointVelErrCalculator>(targets[j], upper_tols[j], lower_tols[j]);
         auto dfdx = std::make_shared<JointVelJacCalculator>();
         prob.addConstraint(
@@ -1291,7 +1268,7 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
       // Otherwise it's a hinged "inequality" constraint
       else
       {
-        const DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
+        DblVec single_jnt_coeffs = DblVec(num_vels * 2, coeffs[j]);
         auto f = std::make_shared<JointVelErrCalculator>(targets[j], upper_tols[j], lower_tols[j]);
         auto dfdx = std::make_shared<JointVelJacCalculator>();
         prob.addConstraint(
@@ -1304,7 +1281,7 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
       }
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_COST) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_COST) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cost is set. Otherwise it's a hinged "inequality" cost
     if (is_upper_zeros && is_lower_zeros)
@@ -1325,7 +1302,7 @@ void JointVelTermInfo::hatch(TrajOptProb& prob)
       prob.getCosts().back()->setName(name);
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_CNT) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cnt is set. Otherwise it's an inequality constraint
     if (is_upper_zeros && is_lower_zeros)
@@ -1357,7 +1334,7 @@ void JointAccTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
   FAIL_IF_FALSE(v.isMember("params"));
   const Json::Value& params = v["params"];
 
-  const unsigned int n_dof = pci.kin->numJoints();
+  unsigned int n_dof = pci.kin->numJoints();
   json_marshal::childFromJson(params, targets, "targets");
 
   // Optional Parameters
@@ -1373,7 +1350,7 @@ void JointAccTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value&
 
 void JointAccTermInfo::hatch(TrajOptProb& prob)
 {
-  const unsigned int n_dof = prob.GetKin()->numJoints();
+  unsigned int n_dof = prob.GetKin()->numJoints();
 
   // If optional parameter not given, set to default
   if (coeffs.empty())
@@ -1395,7 +1372,7 @@ void JointAccTermInfo::hatch(TrajOptProb& prob)
     last_step += 2;
   if (last_step < first_step)
   {
-    const int tmp = first_step;
+    int tmp = first_step;
     first_step = last_step;
     last_step = tmp;
     CONSOLE_BRIDGE_logWarn("Last time step for JointAccTerm comes before first step. Reversing them.");
@@ -1408,24 +1385,24 @@ void JointAccTermInfo::hatch(TrajOptProb& prob)
   checkParameterSize(lower_tols, n_dof, "JointAccTermInfo lower_tols", true);
 
   // Check if tolerances are all zeros
-  const bool is_upper_zeros =
+  bool is_upper_zeros =
       std::all_of(upper_tols.begin(), upper_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
-  const bool is_lower_zeros =
+  bool is_lower_zeros =
       std::all_of(lower_tols.begin(), lower_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
 
   // Get vars associated with joints
-  const trajopt::VarArray vars = prob.GetVars();
+  trajopt::VarArray vars = prob.GetVars();
   trajopt::VarArray joint_vars = vars.block(0, 0, vars.rows(), static_cast<int>(n_dof));
 
-  if (term_type == (TermType::TT_COST | TermType::TT_USE_TIME))
+  if (term_type == (TT_COST | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (term_type == (TermType::TT_CNT | TermType::TT_USE_TIME))
+  else if (term_type == (TT_CNT | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (static_cast<bool>(term_type & TermType::TT_COST) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_COST) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cost is set. Otherwise it's a hinged "inequality" cost
     if (is_upper_zeros && is_lower_zeros)
@@ -1446,7 +1423,7 @@ void JointAccTermInfo::hatch(TrajOptProb& prob)
       prob.getCosts().back()->setName(name);
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_CNT) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cnt is set. Otherwise it's an inequality constraint
     if (is_upper_zeros && is_lower_zeros)
@@ -1478,7 +1455,7 @@ void JointJerkTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
   FAIL_IF_FALSE(v.isMember("params"));
   const Json::Value& params = v["params"];
 
-  const unsigned int n_dof = pci.kin->numJoints();
+  unsigned int n_dof = pci.kin->numJoints();
 
   json_marshal::childFromJson(params, targets, "targets");
 
@@ -1495,7 +1472,7 @@ void JointJerkTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
 
 void JointJerkTermInfo::hatch(TrajOptProb& prob)
 {
-  const unsigned int n_dof = prob.GetKin()->numJoints();
+  unsigned int n_dof = prob.GetKin()->numJoints();
 
   // If optional parameter not given, set to default
   if (coeffs.empty())
@@ -1517,7 +1494,7 @@ void JointJerkTermInfo::hatch(TrajOptProb& prob)
     last_step += 4;
   if (last_step < first_step)
   {
-    const int tmp = first_step;
+    int tmp = first_step;
     first_step = last_step;
     last_step = tmp;
     CONSOLE_BRIDGE_logWarn("Last time step for JointJerkTerm comes before first step. Reversing them.");
@@ -1530,24 +1507,24 @@ void JointJerkTermInfo::hatch(TrajOptProb& prob)
   checkParameterSize(lower_tols, n_dof, "JointJerkTermInfo lower_tols", true);
 
   // Check if tolerances are all zeros
-  const bool is_upper_zeros =
+  bool is_upper_zeros =
       std::all_of(upper_tols.begin(), upper_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
-  const bool is_lower_zeros =
+  bool is_lower_zeros =
       std::all_of(lower_tols.begin(), lower_tols.end(), [](double i) { return trajopt_common::doubleEquals(i, 0.); });
 
   // Get vars associated with joints
-  const trajopt::VarArray vars = prob.GetVars();
+  trajopt::VarArray vars = prob.GetVars();
   trajopt::VarArray joint_vars = vars.block(0, 0, vars.rows(), static_cast<int>(n_dof));
 
-  if (term_type == (TermType::TT_COST | TermType::TT_USE_TIME))
+  if (term_type == (TT_COST | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (term_type == (TermType::TT_CNT | TermType::TT_USE_TIME))
+  else if (term_type == (TT_CNT | TT_USE_TIME))
   {
     CONSOLE_BRIDGE_logError("Use time version of this term has not been defined.");
   }
-  else if (static_cast<bool>(term_type & TermType::TT_COST) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_COST) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cost is set. Otherwise it's a hinged "inequality" cost
     if (is_upper_zeros && is_lower_zeros)
@@ -1568,7 +1545,7 @@ void JointJerkTermInfo::hatch(TrajOptProb& prob)
       prob.getCosts().back()->setName(name);
     }
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT) && static_cast<bool>(~(term_type | ~TermType::TT_USE_TIME)))
+  else if ((term_type & TT_CNT) && ~(term_type | ~TT_USE_TIME))
   {
     // If the tolerances are 0, an equality cnt is set. Otherwise it's an inequality constraint
     if (is_upper_zeros && is_lower_zeros)
@@ -1600,8 +1577,8 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
   FAIL_IF_FALSE(v.isMember("params"));
   const Json::Value& params = v["params"];
 
-  const int n_steps = pci.basic_info.n_steps;
-  int collision_evaluator_type{ 0 };
+  int n_steps = pci.basic_info.n_steps;
+  int collision_evaluator_type;
   json_marshal::childFromJson(params, collision_evaluator_type, "evaluator_type", 0);
   json_marshal::childFromJson(params, use_weighted_sum, "use_weighted_sum", false);
   json_marshal::childFromJson(params, first_step, "first_step", 0);
@@ -1637,24 +1614,24 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
   json_marshal::childFromJson(params, coeffs, "coeffs");
   int n_terms = last_step - first_step + 1;
   if (coeffs.size() == 1)
-    coeffs = DblVec(static_cast<std::size_t>(n_terms), coeffs[0]);
+    coeffs = DblVec(static_cast<size_t>(n_terms), coeffs[0]);
   else if (static_cast<int>(coeffs.size()) != n_terms)
   {
     PRINT_AND_THROW(boost::format("wrong size: coeffs. expected %i got %i") % n_terms % coeffs.size());
   }
   json_marshal::childFromJson(params, dist_pen, "dist_pen");
   if (dist_pen.size() == 1)
-    dist_pen = DblVec(static_cast<std::size_t>(n_terms), dist_pen[0]);
+    dist_pen = DblVec(static_cast<size_t>(n_terms), dist_pen[0]);
   else if (static_cast<int>(dist_pen.size()) != n_terms)
   {
     PRINT_AND_THROW(boost::format("wrong size: dist_pen. expected %i got %i") % n_terms % dist_pen.size());
   }
 
   // Create Contact Distance Data for each timestep
-  info.reserve(static_cast<std::size_t>(n_terms));
+  info.reserve(static_cast<size_t>(n_terms));
   for (int i = first_step; i <= last_step; ++i)
   {
-    auto index = static_cast<std::size_t>(i - first_step);
+    auto index = static_cast<size_t>(i - first_step);
     auto data = std::make_shared<trajopt_common::SafetyMarginData>(dist_pen[index], coeffs[index]);
     info.push_back(data);
   }
@@ -1682,7 +1659,7 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
       json_marshal::childFromJson(*it, pair_coeffs, "coeffs");
       if (pair_coeffs.size() == 1)
       {
-        pair_coeffs = DblVec(static_cast<std::size_t>(n_terms), pair_coeffs[0]);
+        pair_coeffs = DblVec(static_cast<size_t>(n_terms), pair_coeffs[0]);
       }
       else if (static_cast<int>(pair_coeffs.size()) != n_terms)
       {
@@ -1693,7 +1670,7 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
       json_marshal::childFromJson(*it, pair_dist_pen, "dist_pen");
       if (pair_dist_pen.size() == 1)
       {
-        pair_dist_pen = DblVec(static_cast<std::size_t>(n_terms), pair_dist_pen[0]);
+        pair_dist_pen = DblVec(static_cast<size_t>(n_terms), pair_dist_pen[0]);
       }
       else if (static_cast<int>(pair_dist_pen.size()) != n_terms)
       {
@@ -1702,8 +1679,8 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
 
       for (auto i = first_step; i <= last_step; ++i)
       {
-        auto index = static_cast<std::size_t>(i - first_step);
-        const trajopt_common::SafetyMarginData::Ptr& data = info[index];
+        auto index = static_cast<size_t>(i - first_step);
+        trajopt_common::SafetyMarginData::Ptr& data = info[index];
         for (const auto& p : pair)
         {
           data->setPairSafetyMarginData(link, p, pair_dist_pen[index], pair_coeffs[index]);
@@ -1728,19 +1705,19 @@ void CollisionTermInfo::fromJson(ProblemConstructionInfo& pci, const Json::Value
 
 void CollisionTermInfo::hatch(TrajOptProb& prob)
 {
-  const int n_dof = static_cast<int>(prob.GetKin()->numJoints());
+  int n_dof = static_cast<int>(prob.GetKin()->numJoints());
 
-  if (term_type == TermType::TT_COST)
+  if (term_type == TT_COST)
   {
     if (evaluator_type != CollisionEvaluatorType::SINGLE_TIMESTEP)
     {
       bool discrete_continuous = (evaluator_type == CollisionEvaluatorType::DISCRETE_CONTINUOUS);
       for (int i = first_step; i < last_step; ++i)
       {
-        const bool current_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i) != fixed_steps.end();
-        const bool next_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i + 1) != fixed_steps.end();
+        bool current_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i) != fixed_steps.end();
+        bool next_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i + 1) != fixed_steps.end();
 
-        CollisionExpressionEvaluatorType expression_evaluator_type{};
+        CollisionExpressionEvaluatorType expression_evaluator_type;
         if (!current_fixed && !next_fixed)
         {
           expression_evaluator_type = (use_weighted_sum) ?
@@ -1766,7 +1743,7 @@ void CollisionTermInfo::hatch(TrajOptProb& prob)
 
         auto c = std::make_shared<CollisionCost>(prob.GetKin(),
                                                  prob.GetEnv(),
-                                                 info[static_cast<std::size_t>(i - first_step)],
+                                                 info[static_cast<size_t>(i - first_step)],
                                                  contact_test_type,
                                                  longest_valid_segment_length,
                                                  prob.GetVarRow(i, 0, n_dof),
@@ -1790,7 +1767,7 @@ void CollisionTermInfo::hatch(TrajOptProb& prob)
         {
           auto c = std::make_shared<CollisionCost>(prob.GetKin(),
                                                    prob.GetEnv(),
-                                                   info[static_cast<std::size_t>(i - first_step)],
+                                                   info[static_cast<size_t>(i - first_step)],
                                                    contact_test_type,
                                                    prob.GetVarRow(i, 0, n_dof),
                                                    expression_evaluator_type,
@@ -1809,10 +1786,10 @@ void CollisionTermInfo::hatch(TrajOptProb& prob)
       bool discrete_continuous = (evaluator_type == CollisionEvaluatorType::DISCRETE_CONTINUOUS);
       for (int i = first_step; i < last_step; ++i)
       {
-        const bool current_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i) != fixed_steps.end();
-        const bool next_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i + 1) != fixed_steps.end();
+        bool current_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i) != fixed_steps.end();
+        bool next_fixed = std::find(fixed_steps.begin(), fixed_steps.end(), i + 1) != fixed_steps.end();
 
-        CollisionExpressionEvaluatorType expression_evaluator_type{};
+        CollisionExpressionEvaluatorType expression_evaluator_type;
         if (!current_fixed && !next_fixed)
         {
           expression_evaluator_type = (use_weighted_sum) ?
@@ -1838,7 +1815,7 @@ void CollisionTermInfo::hatch(TrajOptProb& prob)
 
         auto c = std::make_shared<CollisionConstraint>(prob.GetKin(),
                                                        prob.GetEnv(),
-                                                       info[static_cast<std::size_t>(i - first_step)],
+                                                       info[static_cast<size_t>(i - first_step)],
                                                        contact_test_type,
                                                        longest_valid_segment_length,
                                                        prob.GetVarRow(i, 0, n_dof),
@@ -1862,7 +1839,7 @@ void CollisionTermInfo::hatch(TrajOptProb& prob)
         {
           auto c = std::make_shared<CollisionConstraint>(prob.GetKin(),
                                                          prob.GetEnv(),
-                                                         info[static_cast<std::size_t>(i - first_step)],
+                                                         info[static_cast<size_t>(i - first_step)],
                                                          contact_test_type,
                                                          prob.GetVarRow(i, 0, n_dof),
                                                          expression_evaluator_type,
@@ -1901,8 +1878,8 @@ void TotalTimeTermInfo::hatch(TrajOptProb& prob)
   }
 
   // Get correct penalty type
-  sco::PenaltyType penalty_type{};
-  sco::ConstraintType constraint_type{};
+  sco::PenaltyType penalty_type;
+  sco::ConstraintType constraint_type;
   if (trajopt_common::doubleEquals(limit, 0.0))
   {
     penalty_type = sco::SQUARED;
@@ -1916,11 +1893,11 @@ void TotalTimeTermInfo::hatch(TrajOptProb& prob)
 
   auto f = std::make_shared<TimeCostCalculator>(limit);
   auto dfdx = std::make_shared<TimeCostJacCalculator>();
-  if (static_cast<bool>(term_type & TermType::TT_COST))
+  if (term_type & TT_COST)
   {
     prob.addCost(std::make_shared<TrajOptCostFromErrFunc>(f, dfdx, time_vars, coeff_vec, penalty_type, name));
   }
-  else if (static_cast<bool>(term_type & TermType::TT_CNT))
+  else if (term_type & TT_CNT)
   {
     prob.addConstraint(
         std::make_shared<TrajOptConstraintFromErrFunc>(f, dfdx, time_vars, coeff_vec, constraint_type, name));
@@ -1962,12 +1939,12 @@ void AvoidSingularityTermInfo::hatch(TrajOptProb& prob)
   for (int i = first_step; i <= last_step; ++i)
   {
     const std::string idx_name = name + "_" + std::to_string(i);
-    if (static_cast<bool>(term_type & TermType::TT_COST))
+    if (term_type & TT_COST)
     {
       prob.addCost(std::make_shared<TrajOptCostFromErrFunc>(
           f, dfdx, prob.GetVarRow(i, 0, n_dof), trajopt_common::toVectorXd(coeffs), sco::ABS, idx_name));
     }
-    else if (static_cast<bool>(term_type & TermType::TT_CNT))
+    else if (term_type & TT_CNT)
     {
       prob.addConstraint(std::make_shared<TrajOptConstraintFromErrFunc>(
           f, dfdx, prob.GetVarRow(i, 0, n_dof), trajopt_common::toVectorXd(coeffs), sco::INEQ, idx_name));

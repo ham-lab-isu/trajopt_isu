@@ -26,17 +26,21 @@
 #ifndef TRAJOPT_SQP_TYPES_H_
 #define TRAJOPT_SQP_TYPES_H_
 
-#include <trajopt_sqp/eigen_types.h>
+#include <Eigen/Eigen>
+#include <iostream>
 
 namespace trajopt_sqp
 {
-enum class ConstraintType : std::uint8_t
+using SparseMatrix = Eigen::SparseMatrix<double, Eigen::RowMajor>;
+using SparseVector = Eigen::SparseVector<double, Eigen::RowMajor>;
+
+enum class ConstraintType
 {
   EQ,
   INEQ
 };
 
-enum class CostPenaltyType : std::uint8_t
+enum class CostPenaltyType
 {
   SQUARED,
   ABSOLUTE,
@@ -48,7 +52,6 @@ enum class CostPenaltyType : std::uint8_t
  */
 struct SQPParameters
 {
-  /** @brief Minimum ratio exact_improve/approx_improve to accept step */
   double improve_ratio_threshold = 0.25;
   /** @brief NLP converges if trust region is smaller than this */
   double min_trust_box_size = 1e-4;
@@ -68,8 +71,6 @@ struct SQPParameters
   double cnt_tolerance = 1e-4;
   /** @brief Max number of times the constraints will be inflated */
   double max_merit_coeff_increases = 5;
-  /** @brief Max number of times the QP solver can fail before optimization is aborted */
-  int max_qp_solver_failures = 3;
   /** @brief Constraints are scaled by this amount when inflated */
   double merit_coeff_increase_ratio = 10;
   /** @brief Max time in seconds that the optimizer will run */
@@ -92,9 +93,24 @@ struct SQPResults
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
-  SQPResults() = default;
-  SQPResults(Eigen::Index num_vars, Eigen::Index num_cnts, Eigen::Index num_costs);
+  SQPResults(Eigen::Index num_vars, Eigen::Index num_cnts, Eigen::Index num_costs)
+  {
+    best_constraint_violations = Eigen::VectorXd::Zero(num_cnts);
+    new_constraint_violations = Eigen::VectorXd::Zero(num_cnts);
+    best_approx_constraint_violations = Eigen::VectorXd::Zero(num_cnts);
+    new_approx_constraint_violations = Eigen::VectorXd::Zero(num_cnts);
 
+    best_costs = Eigen::VectorXd::Zero(num_costs);
+    new_costs = Eigen::VectorXd::Zero(num_costs);
+    best_approx_costs = Eigen::VectorXd::Zero(num_costs);
+    new_approx_costs = Eigen::VectorXd::Zero(num_costs);
+
+    best_var_vals = Eigen::VectorXd::Zero(num_vars);
+    new_var_vals = Eigen::VectorXd::Zero(num_vars);
+    box_size = Eigen::VectorXd::Ones(num_vars);
+    merit_error_coeffs = Eigen::VectorXd::Ones(num_cnts);
+  }
+  SQPResults() = default;
   /** @brief The lowest cost ever achieved */
   double best_exact_merit{ std::numeric_limits<double>::max() };
   /** @brief The cost achieved this iteration */
@@ -151,19 +167,54 @@ struct SQPResults
   int trust_region_iteration{ 0 };
   int overall_iteration{ 0 };
 
-  void print() const;
+  void print() const
+  {
+    Eigen::IOFormat format(3);
+    std::cout << "-------------- SQPResults::print() --------------" << std::endl;
+    std::cout << "best_exact_merit: " << best_exact_merit << std::endl;
+    std::cout << "new_exact_merit: " << new_exact_merit << std::endl;
+    std::cout << "best_approx_merit: " << best_approx_merit << std::endl;
+    std::cout << "new_approx_merit: " << new_approx_merit << std::endl;
+
+    std::cout << "best_var_vals: " << best_var_vals.transpose().format(format) << std::endl;
+    std::cout << "new_var_vals: " << new_var_vals.transpose().format(format) << std::endl;
+
+    std::cout << "approx_merit_improve: " << approx_merit_improve << std::endl;
+    std::cout << "exact_merit_improve: " << exact_merit_improve << std::endl;
+    std::cout << "merit_improve_ratio: " << merit_improve_ratio << std::endl;
+
+    std::cout << "box_size: " << box_size.transpose().format(format) << std::endl;
+    std::cout << "merit_error_coeffs: " << merit_error_coeffs.transpose().format(format) << std::endl;
+
+    std::cout << "best_constraint_violations: " << best_constraint_violations.transpose().format(format) << std::endl;
+    std::cout << "new_constraint_violations: " << new_constraint_violations.transpose().format(format) << std::endl;
+    std::cout << "best_approx_constraint_violations: " << best_approx_constraint_violations.transpose().format(format)
+              << std::endl;
+    std::cout << "new_approx_constraint_violations: " << new_approx_constraint_violations.transpose().format(format)
+              << std::endl;
+
+    std::cout << "best_costs: " << best_costs.transpose().format(format) << std::endl;
+    std::cout << "new_costs: " << new_costs.transpose().format(format) << std::endl;
+    std::cout << "best_approx_costs: " << best_approx_costs.transpose().format(format) << std::endl;
+    std::cout << "new_approx_costs: " << new_approx_costs.transpose().format(format) << std::endl;
+
+    std::cout << "penalty_iteration: " << penalty_iteration << std::endl;
+    std::cout << "convexify_iteration: " << convexify_iteration << std::endl;
+    std::cout << "trust_region_iteration: " << trust_region_iteration << std::endl;
+    std::cout << "overall_iteration: " << overall_iteration << std::endl;
+  }
 };
 
 /**
  * @brief Status codes for the SQP Optimization
  */
-enum class SQPStatus : std::uint8_t
+enum class SQPStatus
 {
   RUNNING,                 /**< Optimization is currently running */
   NLP_CONVERGED,           /**< NLP Successfully converged */
   ITERATION_LIMIT,         /**< SQP Optimization reached iteration limit */
   PENALTY_ITERATION_LIMIT, /**< SQP Optimization reached penalty iteration limit */
-  OPT_TIME_LIMIT,          /**< SQP Optimization reached reached limit */
+  TIME_LIMIT,              /**< SQP Optimization reached reached limit */
   QP_SOLVER_ERROR,         /**< QP Solver failed */
   CALLBACK_STOPPED         /**< Optimization stopped because callback returned false */
 };

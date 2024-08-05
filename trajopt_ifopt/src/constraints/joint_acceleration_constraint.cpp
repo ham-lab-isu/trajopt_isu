@@ -24,7 +24,6 @@
  * limitations under the License.
  */
 #include <trajopt_ifopt/constraints/joint_acceleration_constraint.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <console_bridge/console.h>
@@ -33,12 +32,10 @@ TRAJOPT_IGNORE_WARNINGS_POP
 namespace trajopt_ifopt
 {
 JointAccelConstraint::JointAccelConstraint(const Eigen::VectorXd& targets,
-                                           const std::vector<std::shared_ptr<const JointPosition> >& position_vars,
+                                           const std::vector<JointPosition::ConstPtr>& position_vars,
                                            const Eigen::VectorXd& coeffs,
                                            const std::string& name)
   : ifopt::ConstraintSet(static_cast<int>(targets.size()) * static_cast<int>(position_vars.size()), name)
-  , n_dof_(targets.size())
-  , n_vars_(static_cast<long>(position_vars.size()))
   , coeffs_(coeffs)
   , position_vars_(position_vars)
 {
@@ -53,6 +50,8 @@ JointAccelConstraint::JointAccelConstraint(const Eigen::VectorXd& targets,
   }
 
   // Set n_dof and n_vars
+  n_dof_ = targets.size();
+  n_vars_ = static_cast<long>(position_vars.size());
   assert(n_dof_ > 0);
   assert(n_vars_ > 0);
   //  assert(n_vars_ == 2);
@@ -67,14 +66,14 @@ JointAccelConstraint::JointAccelConstraint(const Eigen::VectorXd& targets,
     throw std::runtime_error("JointAccelConstraint, coeff must be the same size of the joint postion.");
 
   // Set the bounds to the input targets
-  std::vector<ifopt::Bounds> bounds(static_cast<std::size_t>(GetRows()));
+  std::vector<ifopt::Bounds> bounds(static_cast<size_t>(GetRows()));
   // All of the positions should be exactly at their targets
   for (long j = 0; j < n_vars_; j++)
   {
     index_map_[position_vars_[static_cast<std::size_t>(j)]->GetName()] = j;
     for (long i = 0; i < n_dof_; i++)
     {
-      bounds[static_cast<std::size_t>(i + j * n_dof_)] = ifopt::Bounds(targets[i], targets[i]);
+      bounds[static_cast<size_t>(i + j * n_dof_)] = ifopt::Bounds(targets[i], targets[i]);
     }
   }
   bounds_ = bounds;
@@ -82,14 +81,14 @@ JointAccelConstraint::JointAccelConstraint(const Eigen::VectorXd& targets,
 
 Eigen::VectorXd JointAccelConstraint::GetValues() const
 {
-  Eigen::VectorXd acceleration(static_cast<std::size_t>(n_dof_) * position_vars_.size());
+  Eigen::VectorXd acceleration(static_cast<size_t>(n_dof_) * position_vars_.size());
   // Forward Diff
   for (std::size_t ind = 0; ind < position_vars_.size() - 2; ind++)
   {
     auto vals1 = GetVariables()->GetComponent(position_vars_[ind]->GetName())->GetValues();
     auto vals2 = GetVariables()->GetComponent(position_vars_[ind + 1]->GetName())->GetValues();
     auto vals3 = GetVariables()->GetComponent(position_vars_[ind + 2]->GetName())->GetValues();
-    const Eigen::VectorXd single_step = (vals3 - 2 * vals2 + vals1);
+    Eigen::VectorXd single_step = (vals3 - 2 * vals2 + vals1);
     acceleration.block(n_dof_ * static_cast<Eigen::Index>(ind), 0, n_dof_, 1) = coeffs_.cwiseProduct(single_step);
   }
 
@@ -99,7 +98,7 @@ Eigen::VectorXd JointAccelConstraint::GetValues() const
     auto vals1 = GetVariables()->GetComponent(position_vars_[ind]->GetName())->GetValues();
     auto vals2 = GetVariables()->GetComponent(position_vars_[ind - 1]->GetName())->GetValues();
     auto vals3 = GetVariables()->GetComponent(position_vars_[ind - 2]->GetName())->GetValues();
-    const Eigen::VectorXd single_step = (vals3 - 2 * vals2 + vals1);
+    Eigen::VectorXd single_step = (vals3 - 2 * vals2 + vals1);
     acceleration.block(n_dof_ * static_cast<Eigen::Index>(ind), 0, n_dof_, 1) = coeffs_.cwiseProduct(single_step);
   }
 
@@ -117,7 +116,7 @@ void JointAccelConstraint::FillJacobianBlock(std::string var_set, Jacobian& jac_
   if (it == index_map_.end())  // NOLINT
     return;
 
-  const Eigen::Index i = it->second;
+  Eigen::Index i = it->second;
 
   std::vector<Eigen::Triplet<double> > triplet_list;
   triplet_list.reserve(static_cast<std::size_t>(n_dof_ * 3));

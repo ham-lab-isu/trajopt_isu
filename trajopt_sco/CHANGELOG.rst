@@ -2,49 +2,6 @@
 Changelog for package trajopt_sco
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.23.2 (2024-07-31)
--------------------
-
-0.23.1 (2024-07-24)
--------------------
-
-0.23.0 (2024-07-24)
--------------------
-* Trajopt clang-tidy clean-up v3 (`#414 <https://github.com/tesseract-robotics/trajopt/issues/414>`_)
-* Trajopt clang-tidy clean-up v2
-* Trajopt clang-tidy clean-up (`#411 <https://github.com/tesseract-robotics/trajopt/issues/411>`_)
-* Various include cleanups and clang-tidy fixes, and an error message fix.
-* Contributors: Roelof Oomen
-
-0.22.0 (2024-06-02)
--------------------
-* Mismatched free fix (`#399 <https://github.com/tesseract-robotics/trajopt/issues/399>`_)
-  Co-authored-by: Jack-ReframeSystems <jack@reframe.systems>
-* Update to leverage forward declarations
-* Also set matrix diagonal using triplets
-* Remove unneeded reserve() calls
-* Use n instead of outerSize()
-* Create SparseVector from doublets
-* exprToEigen initialize from triplets
-* Properly reserve SparseMatrix
-* Add conda tests (`#380 <https://github.com/tesseract-robotics/trajopt/issues/380>`_)
-* Add toleranced Cartesian waypoints to solver (`#354 <https://github.com/tesseract-robotics/trajopt/issues/354>`_)
-* Use OSQP_INFTY instead of numeric_limits infinity
-* Handle solver failures like TrajOpt does (`#369 <https://github.com/tesseract-robotics/trajopt/issues/369>`_)
-* Contributors: John Wason, Levi Armstrong, Roelof, Roelof Oomen, Tyler Marr
-
-0.7.2 (2023-11-27)
-------------------
-* Fix TrajOpt Ifopt handling of constraint merit coefficient (`#366 <https://github.com/tesseract-robotics/trajopt/issues/366>`_)
-* Contributors: Levi Armstrong
-
-0.7.1 (2023-11-22)
-------------------
-* Remove use of Industrial CI (`#359 <https://github.com/tesseract-robotics/trajopt/issues/359>`_)
-* - Use member initializers instead of constructor. Allows for showing defaults in doc tooltips or when going to definition. Matches trajopt_sqp.
-  - Clean up comments
-* Contributors: Levi Armstrong, Roelof Oomen
-
 0.7.0 (2023-11-07)
 ------------------
 * Fixes some includes (required for newer GCC on Ubuntu 22.04)

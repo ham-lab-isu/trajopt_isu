@@ -3,6 +3,11 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 extern "C" {
 #include "gurobi_c.h"
 }
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_sco/gurobi_interface.hpp>
@@ -78,7 +83,7 @@ GurobiModel::GurobiModel()
 
 Var GurobiModel::addVar(const std::string& name)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   ENSURE_SUCCESS(GRBaddvar(
       m_model, 0, nullptr, nullptr, 0, -GRB_INFINITY, GRB_INFINITY, GRB_CONTINUOUS, const_cast<char*>(name.c_str())));
   m_vars.push_back(std::make_shared<VarRep>(m_vars.size(), name, this));
@@ -87,7 +92,7 @@ Var GurobiModel::addVar(const std::string& name)
 
 Var GurobiModel::addVar(const std::string& name, double lb, double ub)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   ENSURE_SUCCESS(GRBaddvar(m_model, 0, nullptr, nullptr, 0, lb, ub, GRB_CONTINUOUS, const_cast<char*>(name.c_str())));
   m_vars.push_back(std::make_shared<VarRep>(m_vars.size(), name, this));
   return m_vars.back();
@@ -95,7 +100,7 @@ Var GurobiModel::addVar(const std::string& name, double lb, double ub)
 
 Cnt GurobiModel::addEqCnt(const AffExpr& expr, const std::string& name)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   LOG_TRACE("adding eq constraint: %s = 0", CSTR(expr));
   IntVec inds;
   vars2inds(expr.vars, inds);
@@ -113,7 +118,7 @@ Cnt GurobiModel::addEqCnt(const AffExpr& expr, const std::string& name)
 }
 Cnt GurobiModel::addIneqCnt(const AffExpr& expr, const std::string& name)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   LOG_TRACE("adding ineq: %s <= 0", CSTR(expr));
   IntVec inds;
   vars2inds(expr.vars, inds);
@@ -131,7 +136,7 @@ Cnt GurobiModel::addIneqCnt(const AffExpr& expr, const std::string& name)
 }
 Cnt GurobiModel::addIneqCnt(const QuadExpr& qexpr, const std::string& name)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   int numlnz = static_cast<int>(qexpr.affexpr.size());
   IntVec linds;
   vars2inds(qexpr.affexpr.vars, linds);
@@ -156,32 +161,32 @@ Cnt GurobiModel::addIneqCnt(const QuadExpr& qexpr, const std::string& name)
 
 void resetIndices(VarVector& vars)
 {
-  for (std::size_t i = 0; i < vars.size(); ++i)
+  for (size_t i = 0; i < vars.size(); ++i)
     vars[i].var_rep->index = i;
 }
 void resetIndices(CntVector& cnts)
 {
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     cnts[i].cnt_rep->index = i;
 }
 
 void GurobiModel::removeVars(const VarVector& vars)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   IntVec inds;
   vars2inds(vars, inds);
   ENSURE_SUCCESS(GRBdelvars(m_model, static_cast<int>(inds.size()), inds.data()));
-  for (std::size_t i = 0; i < vars.size(); ++i)
+  for (size_t i = 0; i < vars.size(); ++i)
     vars[i].var_rep->removed = true;
 }
 
 void GurobiModel::removeCnts(const CntVector& cnts)
 {
-  const std::scoped_lock lock(m_mutex);
+  std::scoped_lock lock(m_mutex);
   IntVec inds;
   cnts2inds(cnts, inds);
   ENSURE_SUCCESS(GRBdelconstrs(m_model, static_cast<int>(inds.size()), inds.data()));
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     cnts[i].cnt_rep->removed = true;
 }
 
@@ -259,8 +264,8 @@ void GurobiModel::setObjective(const AffExpr& expr)
   GRBgetintattr(m_model, GRB_INT_ATTR_NUMVARS, &nvars);
   assert(nvars == static_cast<int>(m_vars.size()));
 
-  DblVec obj(static_cast<std::size_t>(nvars), 0);
-  for (std::size_t i = 0; i < expr.size(); ++i)
+  DblVec obj(static_cast<size_t>(nvars), 0);
+  for (size_t i = 0; i < expr.size(); ++i)
   {
     obj[expr.vars[i].var_rep->index] += expr.coeffs[i];
   }
@@ -288,7 +293,7 @@ void GurobiModel::update()
   ENSURE_SUCCESS(GRBupdatemodel(m_model));
 
   {
-    std::size_t inew = 0;
+    size_t inew = 0;
     for (Var& var : m_vars)
     {
       if (!var.var_rep->removed)
@@ -305,7 +310,7 @@ void GurobiModel::update()
     m_vars.resize(inew);
   }
   {
-    std::size_t inew = 0;
+    size_t inew = 0;
     for (Cnt& cnt : m_cnts)
     {
       if (!cnt.cnt_rep->removed)

@@ -27,23 +27,22 @@
 
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <trajopt_common/collision_types.h>
+#include <tesseract_kinematics/core/utils.h>
+#include <console_bridge/console.h>
+#include <tesseract_collision/core/common.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_ifopt/constraints/collision/continuous_collision_constraint.h>
-#include <trajopt_ifopt/constraints/collision/continuous_collision_evaluators.h>
 #include <trajopt_ifopt/constraints/collision/weighted_average_methods.h>
-#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 namespace trajopt_ifopt
 {
-ContinuousCollisionConstraint::ContinuousCollisionConstraint(
-    std::shared_ptr<ContinuousCollisionEvaluator> collision_evaluator,
-    std::array<std::shared_ptr<const JointPosition>, 2> position_vars,
-    std::array<bool, 2> position_vars_fixed,
-    int max_num_cnt,
-    bool fixed_sparsity,
-    const std::string& name)
+ContinuousCollisionConstraint::ContinuousCollisionConstraint(ContinuousCollisionEvaluator::Ptr collision_evaluator,
+                                                             std::array<JointPosition::ConstPtr, 2> position_vars,
+                                                             std::array<bool, 2> position_vars_fixed,
+                                                             int max_num_cnt,
+                                                             bool fixed_sparsity,
+                                                             const std::string& name)
   : ifopt::ConstraintSet(max_num_cnt, name)
   , position_vars_(std::move(position_vars))
   , position_vars_fixed_(position_vars_fixed)
@@ -83,9 +82,9 @@ ContinuousCollisionConstraint::ContinuousCollisionConstraint(
 Eigen::VectorXd ContinuousCollisionConstraint::GetValues() const
 {
   // Get current joint values
-  const Eigen::VectorXd joint_vals0 = this->GetVariables()->GetComponent(position_vars_[0]->GetName())->GetValues();
-  const Eigen::VectorXd joint_vals1 = this->GetVariables()->GetComponent(position_vars_[1]->GetName())->GetValues();
-  const double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
+  Eigen::VectorXd joint_vals0 = this->GetVariables()->GetComponent(position_vars_[0]->GetName())->GetValues();
+  Eigen::VectorXd joint_vals1 = this->GetVariables()->GetComponent(position_vars_[1]->GetName())->GetValues();
+  double margin_buffer = collision_evaluator_->GetCollisionConfig().collision_margin_buffer;
   Eigen::VectorXd values = Eigen::VectorXd::Constant(static_cast<Eigen::Index>(bounds_.size()), -margin_buffer);
 
   auto collision_data =
@@ -139,8 +138,8 @@ void ContinuousCollisionConstraint::FillJacobianBlock(std::string var_set, Jacob
     jac_block.setFromTriplets(triplet_list_.begin(), triplet_list_.end());  // NOLINT
 
   // Calculate collisions
-  const Eigen::VectorXd joint_vals0 = this->GetVariables()->GetComponent(position_vars_[0]->GetName())->GetValues();
-  const Eigen::VectorXd joint_vals1 = this->GetVariables()->GetComponent(position_vars_[1]->GetName())->GetValues();
+  Eigen::VectorXd joint_vals0 = this->GetVariables()->GetComponent(position_vars_[0]->GetName())->GetValues();
+  Eigen::VectorXd joint_vals1 = this->GetVariables()->GetComponent(position_vars_[1]->GetName())->GetValues();
 
   auto collision_data =
       collision_evaluator_->CalcCollisionData(joint_vals0, joint_vals1, position_vars_fixed_, bounds_.size());
@@ -196,7 +195,7 @@ void ContinuousCollisionConstraint::SetBounds(const std::vector<ifopt::Bounds>& 
   bounds_ = bounds;
 }
 
-std::shared_ptr<ContinuousCollisionEvaluator> ContinuousCollisionConstraint::GetCollisionEvaluator() const
+ContinuousCollisionEvaluator::Ptr ContinuousCollisionConstraint::GetCollisionEvaluator() const
 {
   return collision_evaluator_;
 }

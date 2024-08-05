@@ -29,11 +29,8 @@
  * limitations under the License.
  */
 #include <trajopt_sqp/trust_region_sqp_solver.h>
-#include <trajopt_sqp/qp_problem.h>
-#include <trajopt_sqp/qp_solver.h>
-#include <trajopt_sqp/sqp_callback.h>
-
 #include <console_bridge/console.h>
+#include <iostream>
 #include <chrono>
 
 namespace trajopt_sqp
@@ -58,24 +55,18 @@ bool TrustRegionSQPSolver::init(QPProblem::Ptr qp_prob)
   // Evaluate exact constraint violations (expensive)
   results_.best_constraint_violations = qp_problem->getExactConstraintViolations();
 
+  // Calculate exact NLP merits (expensive) - TODO: Look into caching for qp_solver->Convexify()
+  results_.best_exact_merit =
+      results_.best_costs.sum() + results_.best_constraint_violations.dot(results_.merit_error_coeffs);
+
   setBoxSize(params.initial_trust_box_size);
-  constraintMeritCoeffChanged();
   return true;
 }
 
 void TrustRegionSQPSolver::setBoxSize(double box_size)
 {
-  qp_problem->setBoxSize(Eigen::VectorXd::Constant(qp_problem->getNumNLPVars(), box_size));
-  results_.box_size = qp_problem->getBoxSize();
-}
-
-void TrustRegionSQPSolver::constraintMeritCoeffChanged()
-{
-  qp_problem->setConstraintMeritCoeff(results_.merit_error_coeffs);
-
-  // Recalculate the best exact merit because merit coeffs may have changed
-  results_.best_exact_merit =
-      results_.best_costs.sum() + results_.best_constraint_violations.dot(results_.merit_error_coeffs);
+  results_.box_size = Eigen::VectorXd::Constant(qp_problem->getNumNLPVars(), box_size);
+  qp_problem->setBoxSize(results_.box_size);
 }
 
 void TrustRegionSQPSolver::registerCallback(const SQPCallback::Ptr& callback) { callbacks_.push_back(callback); }
@@ -102,13 +93,13 @@ void TrustRegionSQPSolver::solve(const QPProblem::Ptr& qp_problem)
     results_.convexify_iteration = 0;
 
     // Convexification loop
-    for (int convex_iteration = 1; convex_iteration < 100; convex_iteration++)
+    for (int convex_iteration = 0; convex_iteration < 100; convex_iteration++)
     {
-      const double elapsed_time = std::chrono::duration<double, std::milli>(Clock::now() - start_time).count() / 1000.0;
+      double elapsed_time = std::chrono::duration<double, std::milli>(Clock::now() - start_time).count() / 1000.0;
       if (elapsed_time > params.max_time)
       {
         CONSOLE_BRIDGE_logInform("Elapsed time %f has exceeded max time %f", elapsed_time, params.max_time);
-        status_ = SQPStatus::OPT_TIME_LIMIT;
+        status_ = SQPStatus::TIME_LIMIT;
         break;
       }
 
@@ -131,7 +122,7 @@ void TrustRegionSQPSolver::solve(const QPProblem::Ptr& qp_problem)
     }
 
     // If status is iteration limit or time limit we need to exit penalty iteration loop
-    if (status_ == SQPStatus::ITERATION_LIMIT || status_ == SQPStatus::OPT_TIME_LIMIT)
+    if (status_ == SQPStatus::ITERATION_LIMIT || status_ == SQPStatus::TIME_LIMIT)
       break;
 
     // Set status to running
@@ -195,8 +186,8 @@ void TrustRegionSQPSolver::adjustPenalty()
     CONSOLE_BRIDGE_logInform("Not all constraints are satisfied. Increasing constraint penalties uniformly");
     results_.merit_error_coeffs *= params.merit_coeff_increase_ratio;
   }
-  setBoxSize(fmax(results_.box_size[0], params.min_trust_box_size / params.trust_shrink_ratio * 1.5));
-  constraintMeritCoeffChanged();
+  results_.box_size = Eigen::VectorXd::Ones(results_.box_size.size()) *
+                      fmax(results_.box_size[0], params.min_trust_box_size / params.trust_shrink_ratio * 1.5);
 }
 
 bool TrustRegionSQPSolver::stepSQPSolver()
@@ -234,7 +225,6 @@ bool TrustRegionSQPSolver::stepSQPSolver()
 void TrustRegionSQPSolver::runTrustRegionLoop()
 {
   results_.trust_region_iteration = 0;
-  int qp_solver_failures = 0;
   while (results_.box_size.maxCoeff() >= params.min_trust_box_size)
   {
     if (SUPER_DEBUG_MODE)
@@ -245,34 +235,12 @@ void TrustRegionSQPSolver::runTrustRegionLoop()
 
     // Solve the current QP problem
     status_ = solveQPProblem();
-
     if (status_ != SQPStatus::RUNNING)
     {
-      qp_solver_failures++;
-      CONSOLE_BRIDGE_logWarn("Convex solver failed (%d/%d)!", qp_solver_failures, params.max_qp_solver_failures);
-
-      if (qp_solver_failures < params.max_qp_solver_failures)
-      {
-        qp_problem->scaleBoxSize(params.trust_shrink_ratio);
-        qp_solver->updateBounds(qp_problem->getBoundsLower(), qp_problem->getBoundsUpper());
-        results_.box_size = qp_problem->getBoxSize();
-
-        CONSOLE_BRIDGE_logDebug("Shrunk trust region. New box size: %.4f", results_.box_size[0]);
-        continue;
-      }
-
-      if (qp_solver_failures == params.max_qp_solver_failures)
-      {
-        // Convex solver failed and this is the last attempt so setting the trust region to the minimum
-        qp_problem->setBoxSize(Eigen::VectorXd::Constant(qp_problem->getNumNLPVars(), params.min_trust_box_size));
-        qp_solver->updateBounds(qp_problem->getBoundsLower(), qp_problem->getBoundsUpper());
-        results_.box_size = qp_problem->getBoxSize();
-
-        CONSOLE_BRIDGE_logDebug("Shrunk trust region to minimum. New box size: %.4f", results_.box_size[0]);
-        continue;
-      }
-
-      CONSOLE_BRIDGE_logError("The convex solver failed you one too many times.");
+      qp_problem->setVariables(results_.best_var_vals.data());
+      qp_problem->scaleBoxSize(params.trust_shrink_ratio);
+      qp_solver->updateBounds(qp_problem->getBoundsLower(), qp_problem->getBoundsUpper());
+      results_.box_size = qp_problem->getBoxSize();
       return;
     }
 
@@ -286,18 +254,18 @@ void TrustRegionSQPSolver::runTrustRegionLoop()
 
     if (results_.approx_merit_improve < params.min_approx_improve)
     {
-      CONSOLE_BRIDGE_logDebug("Converged because improvement was small (%.3e < %.3e)",
-                              results_.approx_merit_improve,
-                              params.min_approx_improve);
+      CONSOLE_BRIDGE_logInform("Converged because improvement was small (%.3e < %.3e)",
+                               results_.approx_merit_improve,
+                               params.min_approx_improve);
       status_ = SQPStatus::NLP_CONVERGED;
       return;
     }
 
     if (results_.approx_merit_improve / results_.best_exact_merit < params.min_approx_improve_frac)
     {
-      CONSOLE_BRIDGE_logDebug("Converged because improvement ratio was small (%.3e < %.3e)",
-                              results_.approx_merit_improve / results_.best_exact_merit,
-                              params.min_approx_improve_frac);
+      CONSOLE_BRIDGE_logInform("Converged because improvement ratio was small (%.3e < %.3e)",
+                               results_.approx_merit_improve / results_.best_exact_merit,
+                               params.min_approx_improve_frac);
       status_ = SQPStatus::NLP_CONVERGED;
       return;
     }
@@ -310,7 +278,7 @@ void TrustRegionSQPSolver::runTrustRegionLoop()
       qp_solver->updateBounds(qp_problem->getBoundsLower(), qp_problem->getBoundsUpper());
       results_.box_size = qp_problem->getBoxSize();
 
-      CONSOLE_BRIDGE_logDebug("Shrunk trust region. new box size: %.4f", results_.box_size[0]);
+      CONSOLE_BRIDGE_logInform("Shrunk trust region. new box size: %.4f", results_.box_size[0]);
     }
     else
     {
@@ -330,9 +298,8 @@ void TrustRegionSQPSolver::runTrustRegionLoop()
       qp_problem->setVariables(results_.best_var_vals.data());
 
       qp_problem->scaleBoxSize(params.trust_expand_ratio);
-      qp_solver->updateBounds(qp_problem->getBoundsLower(), qp_problem->getBoundsUpper());
       results_.box_size = qp_problem->getBoxSize();
-      CONSOLE_BRIDGE_logDebug("Expanded trust region. new box size: %.4f", results_.box_size[0]);
+      CONSOLE_BRIDGE_logInform("Expanded trust region. new box size: %.4f", results_.box_size[0]);
       return;
     }
   }  // Trust region loop
@@ -387,8 +354,6 @@ SQPStatus TrustRegionSQPSolver::solveQPProblem()
   }
   else
   {
-    qp_problem->setVariables(results_.best_var_vals.data());
-
     CONSOLE_BRIDGE_logError("Solver Failure");
     return SQPStatus::QP_SOLVER_ERROR;
   }
@@ -415,8 +380,7 @@ void TrustRegionSQPSolver::printStepInfo() const
   // Print Header
   std::printf("\n| %s |\n", std::string(88, '=').c_str());
   std::printf("| %s %s %s |\n", std::string(36, ' ').c_str(), "ROS Industrial", std::string(36, ' ').c_str());
-  std::printf(
-      "| %s %s %s |\n", std::string(28, ' ').c_str(), "TrajOpt Ifopt Motion Planning", std::string(29, ' ').c_str());
+  std::printf("| %s %s %s |\n", std::string(32, ' ').c_str(), "TrajOpt Motion Planning", std::string(31, ' ').c_str());
   std::printf("| %s |\n", std::string(88, '=').c_str());
   std::printf("| %s %s (Box Size: %-3.9f) %s |\n",
               std::string(26, ' ').c_str(),
@@ -451,8 +415,8 @@ void TrustRegionSQPSolver::printStepInfo() const
   const std::vector<std::string>& cost_names = qp_problem->getNLPCostNames();
   for (Eigen::Index cost_number = 0; cost_number < static_cast<Eigen::Index>(cost_names.size()); ++cost_number)
   {
-    const double approx_improve = results_.best_costs[cost_number] - results_.new_approx_costs[cost_number];
-    const double exact_improve = results_.best_costs[cost_number] - results_.new_costs[cost_number];
+    double approx_improve = results_.best_costs[cost_number] - results_.new_approx_costs[cost_number];
+    double exact_improve = results_.best_costs[cost_number] - results_.new_costs[cost_number];
     if (fabs(approx_improve) > 1e-8)
       std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s\n",
                   "----------",
@@ -496,9 +460,9 @@ void TrustRegionSQPSolver::printStepInfo() const
     // Loop over constraints
     for (Eigen::Index cnt_number = 0; cnt_number < static_cast<Eigen::Index>(constraint_names.size()); ++cnt_number)
     {
-      const double approx_improve =
+      double approx_improve =
           results_.best_constraint_violations[cnt_number] - results_.new_approx_constraint_violations[cnt_number];
-      const double exact_improve =
+      double exact_improve =
           results_.best_constraint_violations[cnt_number] - results_.new_constraint_violations[cnt_number];
       if (fabs(approx_improve) > 1e-8)
         std::printf("| %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s\n",
@@ -524,7 +488,7 @@ void TrustRegionSQPSolver::printStepInfo() const
   }
 
   // Constraint
-  const std::string constraints_satisfied =
+  std::string constraints_satisfied =
       (results_.new_constraint_violations.maxCoeff() < params.cnt_tolerance) ? "True" : "False";
   std::printf("| %s |\n", std::string(88, '=').c_str());
   std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10s | %10s | %10s | SUM CONSTRAINTS (WITHOUT MERIT), Satisfied "

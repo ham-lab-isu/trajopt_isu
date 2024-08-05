@@ -24,38 +24,34 @@
  * limitations under the License.
  */
 #include <trajopt_sqp/callbacks/collision_plotter.h>
-#include <trajopt_sqp/qp_problem.h>
-
-#include <trajopt_ifopt/constraints/collision/discrete_collision_constraint.h>
-
-#include <tesseract_visualization/visualization.h>
+#include <trajopt_ifopt/utils/trajopt_utils.h>
 
 using namespace trajopt_sqp;
 
-CollisionPlottingCallback::CollisionPlottingCallback(std::shared_ptr<tesseract_visualization::Visualization> plotter)
+CollisionPlottingCallback::CollisionPlottingCallback(tesseract_visualization::Visualization::Ptr plotter)
   : plotter_(std::move(plotter))
 {
 }
 
 void CollisionPlottingCallback::plot(const QPProblem& /*problem*/)  // NOLINT Remove after implementation
 {
-  std::cout << "Collision plotting has not been implemented. PRs welcome" << '\n';
+  std::cout << "Collision plotting has not been implemented. PRs welcome" << std::endl;
 }
 
 void CollisionPlottingCallback::addConstraintSet(
-    const std::shared_ptr<const trajopt_ifopt::DiscreteCollisionConstraint>& collision_constraint)
+    const trajopt_ifopt::DiscreteCollisionConstraint::ConstPtr& collision_constraint)
 {
   collision_constraints_.push_back(collision_constraint);
 }
 
 void CollisionPlottingCallback::addConstraintSet(
-    const std::vector<std::shared_ptr<const trajopt_ifopt::DiscreteCollisionConstraint> >& collision_constraints)
+    const std::vector<trajopt_ifopt::DiscreteCollisionConstraint::ConstPtr>& collision_constraints)
 {
   for (const auto& cnt : collision_constraints)
     collision_constraints_.push_back(cnt);
 }
 
-bool CollisionPlottingCallback::execute(const QPProblem& problem, const SQPResults&)
+bool CollisionPlottingCallback::execute(const QPProblem& problem, const trajopt_sqp::SQPResults&)
 {
   plot(problem);
   return true;

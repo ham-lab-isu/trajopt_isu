@@ -1,9 +1,8 @@
 #ifndef TRAJOPT_SQP_EXPRESSIONS_H
 #define TRAJOPT_SQP_EXPRESSIONS_H
 
-#include <vector>
-
-#include <trajopt_sqp/eigen_types.h>
+#include <Eigen/Geometry>
+#include <trajopt_sqp/types.h>
 
 namespace trajopt_sqp
 {

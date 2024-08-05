@@ -2,37 +2,6 @@
 Changelog for package trajopt_utils
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.23.2 (2024-07-31)
--------------------
-
-0.23.1 (2024-07-24)
--------------------
-
-0.23.0 (2024-07-24)
--------------------
-* Trajopt clang-tidy clean-up v3 (`#414 <https://github.com/tesseract-robotics/trajopt/issues/414>`_)
-* Trajopt clang-tidy clean-up v2
-* Trajopt clang-tidy clean-up (`#411 <https://github.com/tesseract-robotics/trajopt/issues/411>`_)
-* Various include cleanups and clang-tidy fixes, and an error message fix.
-* Contributors: Roelof Oomen
-
-0.22.0 (2024-06-02)
--------------------
-* Update to leverage forward declarations
-* Fix trajopt ifopt collision with fixed states (`#372 <https://github.com/tesseract-robotics/trajopt/issues/372>`_)
-* Contributors: Levi Armstrong
-
-0.7.2 (2023-11-27)
-------------------
-* Fix TrajOpt Ifopt handling of constraint merit coefficient (`#366 <https://github.com/tesseract-robotics/trajopt/issues/366>`_)
-* Removed gcc-specific options from clang config (see https://github.com/tesseract-robotics/tesseract/commit/43d08870034e85a3f335d37ded00df282e5ec46e)
-* Contributors: Levi Armstrong, Roelof Oomen
-
-0.7.1 (2023-11-22)
-------------------
-* Remove use of Industrial CI (`#359 <https://github.com/tesseract-robotics/trajopt/issues/359>`_)
-* Contributors: Levi Armstrong
-
 0.7.0 (2023-11-07)
 ------------------
 * Move TrajOptIfopt collision gradient types and utils to trajopt_common package

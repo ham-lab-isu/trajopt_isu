@@ -1,6 +1,7 @@
 #pragma once
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
+#include <iostream>
 #include <map>
 #include <set>
 #include <sstream>
@@ -21,7 +22,7 @@ std::string Str(const std::vector<T>& x)
   ss << "(";
   if (!x.empty())
     ss << x[0];
-  for (std::size_t i = 1; i < x.size(); ++i)
+  for (size_t i = 1; i < x.size(); ++i)
     ss << ", " << x[i];
   ss << ")";
   return ss.str();

@@ -2,40 +2,6 @@
 Changelog for package trajopt_ifopt
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.23.2 (2024-07-31)
--------------------
-
-0.23.1 (2024-07-24)
--------------------
-
-0.23.0 (2024-07-24)
--------------------
-* Trajopt clang-tidy clean-up v3 (`#414 <https://github.com/tesseract-robotics/trajopt/issues/414>`_)
-* Trajopt clang-tidy clean-up v2
-* Trajopt clang-tidy clean-up (`#411 <https://github.com/tesseract-robotics/trajopt/issues/411>`_)
-* Fixes for building on Ubuntu Noble
-* Contributors: Roelof Oomen
-
-0.22.0 (2024-06-02)
--------------------
-* Update to leverage forward declarations
-* Add dynamic cartesian support to TrajOptIfopt
-* Fix bug in getWeightedAvgGradientT0
-* Fix bug in getWeightedAvgGradientT1
-* Update to use transform error diff function for numerical jacobian (`#386 <https://github.com/tesseract-robotics/trajopt/issues/386>`_)
-* Fix trajopt ifopt collision with fixed states (`#372 <https://github.com/tesseract-robotics/trajopt/issues/372>`_)
-* Contributors: Levi Armstrong
-
-0.7.2 (2023-11-27)
-------------------
-* Fix TrajOpt Ifopt handling of constraint merit coefficient (`#366 <https://github.com/tesseract-robotics/trajopt/issues/366>`_)
-* Contributors: Levi Armstrong
-
-0.7.1 (2023-11-22)
-------------------
-* Remove use of Industrial CI (`#359 <https://github.com/tesseract-robotics/trajopt/issues/359>`_)
-* Contributors: Levi Armstrong
-
 0.7.0 (2023-11-07)
 ------------------
 * Move TrajOptIfopt collision gradient types and utils to trajopt_common package

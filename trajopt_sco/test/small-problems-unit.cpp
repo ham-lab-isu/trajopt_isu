@@ -4,6 +4,8 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <boost/format.hpp>
 #include <cmath>
 #include <gtest/gtest.h>
+#include <iostream>
+#include <sstream>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_sco/expr_op_overloads.hpp>
@@ -25,12 +27,11 @@ protected:
   SQP() = default;
 };
 
-void setupProblem(OptProb::Ptr& probptr, std::size_t nvars, ModelType convex_solver)
+void setupProblem(OptProb::Ptr& probptr, size_t nvars, ModelType convex_solver)
 {
   probptr = std::make_shared<OptProb>(convex_solver);
   vector<string> var_names;
-  var_names.reserve(nvars);
-  for (std::size_t i = 0; i < nvars; ++i)
+  for (size_t i = 0; i < nvars; ++i)
   {
     var_names.push_back((boost::format("x_%i") % i).str());
   }
@@ -40,8 +41,9 @@ void setupProblem(OptProb::Ptr& probptr, std::size_t nvars, ModelType convex_sol
 void expectAllNear(const DblVec& x, const DblVec& y, double abstol)
 {
   EXPECT_EQ(x.size(), y.size());
+  stringstream ss;
   LOG_INFO("checking %s ?= %s", CSTR(x), CSTR(y));
-  for (std::size_t i = 0; i < x.size(); ++i)
+  for (size_t i = 0; i < x.size(); ++i)
     EXPECT_NEAR(x[i], y[i], abstol);
 }
 
@@ -55,9 +57,9 @@ TEST_P(SQP, QuadraticSeparable)  // NOLINT
   BasicTrustRegionSQP solver(prob);
   BasicTrustRegionSQPParameters& params = solver.getParameters();
   params.trust_box_size = 100;
-  const DblVec x = { 3, 4, 5 };
+  DblVec x = { 3, 4, 5 };
   solver.initialize(x);
-  const OptStatus status = solver.optimize();
+  OptStatus status = solver.optimize();
   ASSERT_EQ(status, OPT_CONVERGED);
   expectAllNear(solver.x(), { 0, 1, 2 }, 1e-3);
   // todo: checks on number of iterations and function evaluates
@@ -74,9 +76,9 @@ TEST_P(SQP, QuadraticNonseparable)  // NOLINT
   params.trust_box_size = 100;
   params.min_trust_box_size = 1e-5;
   params.min_approx_improve = 1e-6;
-  const DblVec x = { 3, 4, 5 };
+  DblVec x = { 3, 4, 5 };
   solver.initialize(x);
-  const OptStatus status = solver.optimize();
+  OptStatus status = solver.optimize();
   ASSERT_EQ(status, OPT_CONVERGED);
   expectAllNear(solver.x(), { 1, 7, 2 }, .01);
   // todo: checks on number of iterations and function evaluates
@@ -90,7 +92,7 @@ void testProblem(ScalarOfVector::Ptr f,
                  ModelType convex_solver)
 {
   OptProb::Ptr prob;
-  const std::size_t n = init.size();
+  size_t n = init.size();
   assert(sol.size() == n);
   setupProblem(prob, n, convex_solver);
   prob->addCost(std::make_shared<CostFromFunc>(std::move(f), prob->getVars(), "f", true));
@@ -104,7 +106,7 @@ void testProblem(ScalarOfVector::Ptr f,
   params.initial_merit_error_coeff = 1;
 
   solver.initialize(init);
-  const OptStatus status = solver.optimize();
+  OptStatus status = solver.optimize();
   EXPECT_EQ(status, OPT_CONVERGED);
   expectAllNear(solver.x(), sol, .01);
 }

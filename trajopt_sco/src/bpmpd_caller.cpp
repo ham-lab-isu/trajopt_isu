@@ -35,12 +35,12 @@ extern void bpmpd(int*,
 
 int main(int /*argc*/, char** /*argv*/)
 {
-  std::string const working_dir = BPMPD_WORKING_DIR;
-  int const err = chdir(working_dir.c_str());
+  std::string working_dir = BPMPD_WORKING_DIR;
+  int err = chdir(working_dir.c_str());
   if (err != 0)
   {
     std::cerr << "error going to BPMPD working dir\n";
-    std::cerr << strerror(err) << '\n';
+    std::cerr << strerror(err) << std::endl;
     abort();
   }
   // int counter=0;
@@ -56,7 +56,7 @@ int main(int /*argc*/, char** /*argv*/)
     bo.dual.resize(static_cast<unsigned long>(bi.m) + static_cast<unsigned long>(bi.n));
     bo.status.resize(static_cast<unsigned long>(bi.m) + static_cast<unsigned long>(bi.n));
 
-#define DBG(expr)  // cerr << #expr << ": " << CSTR(expr) << '\n'
+#define DBG(expr)  // cerr << #expr << ": " << CSTR(expr) << std::endl
     DBG(bi.m);
     DBG(bi.n);
     DBG(bi.nz);

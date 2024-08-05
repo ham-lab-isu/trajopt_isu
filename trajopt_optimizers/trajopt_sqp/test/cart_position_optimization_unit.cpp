@@ -30,15 +30,12 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include <OsqpEigen/OsqpEigen.h>
-
 #include <ifopt/problem.h>
 #include <ifopt/ipopt_solver.h>
 
+#include <tesseract_environment/environment.h>
 #include <tesseract_common/resource_locator.h>
 #include <tesseract_common/types.h>
-#include <tesseract_kinematics/core/joint_group.h>
-#include <tesseract_environment/environment.h>
 #include <console_bridge/console.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
@@ -67,9 +64,9 @@ public:
       console_bridge::setLogLevel(console_bridge::LogLevel::CONSOLE_BRIDGE_LOG_NONE);
 
     // 1)  Load Robot
-    const tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
-    const tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
-    const tesseract_common::ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
+    tesseract_common::fs::path urdf_file(std::string(TRAJOPT_DATA_DIR) + "/arm_around_table.urdf");
+    tesseract_common::fs::path srdf_file(std::string(TRAJOPT_DATA_DIR) + "/pr2.srdf");
+    tesseract_common::ResourceLocator::Ptr locator = std::make_shared<tesseract_common::GeneralResourceLocator>();
     env = std::make_shared<tesseract_environment::Environment>();
     env->init(urdf_file, srdf_file, locator);
   }
@@ -80,24 +77,24 @@ void runCartPositionOptimization(const trajopt_sqp::QPProblem::Ptr& qp_problem,
 {
   auto qp_solver = std::make_shared<trajopt_sqp::OSQPEigenSolver>();
   trajopt_sqp::TrustRegionSQPSolver solver(qp_solver);
-  qp_solver->solver_->settings()->setVerbosity(DEBUG);
-  qp_solver->solver_->settings()->setWarmStart(true);
-  qp_solver->solver_->settings()->setPolish(true);
-  qp_solver->solver_->settings()->setAdaptiveRho(false);
-  qp_solver->solver_->settings()->setMaxIteration(8192);
-  qp_solver->solver_->settings()->setAbsoluteTolerance(1e-4);
-  qp_solver->solver_->settings()->setRelativeTolerance(1e-6);
+  qp_solver->solver_.settings()->setVerbosity(DEBUG);
+  qp_solver->solver_.settings()->setWarmStart(true);
+  qp_solver->solver_.settings()->setPolish(true);
+  qp_solver->solver_.settings()->setAdaptiveRho(false);
+  qp_solver->solver_.settings()->setMaxIteration(8192);
+  qp_solver->solver_.settings()->setAbsoluteTolerance(1e-4);
+  qp_solver->solver_.settings()->setRelativeTolerance(1e-6);
 
   // Extract necessary kinematic information
-  const tesseract_kinematics::JointGroup::ConstPtr manip = env->getJointGroup("right_arm");
+  tesseract_kinematics::JointGroup::ConstPtr manip = env->getJointGroup("right_arm");
 
   // Get target position
   Eigen::VectorXd start_pos(manip->numJoints());
   start_pos << 0.0, 0, 0, -1.0, 0, -1, -0.00;
   if (DEBUG)
-    std::cout << "Joint Limits:\n" << manip->getLimits().joint_limits.transpose() << '\n';
+    std::cout << "Joint Limits:\n" << manip->getLimits().joint_limits.transpose() << std::endl;
 
-  const Eigen::VectorXd joint_target = start_pos;
+  Eigen::VectorXd joint_target = start_pos;
   Eigen::Isometry3d target_pose = manip->calcFwdKin(joint_target).at("r_gripper_tool_frame");
 
   // 3) Add Variables
@@ -114,7 +111,7 @@ void runCartPositionOptimization(const trajopt_sqp::QPProblem::Ptr& qp_problem,
   // 4) Add constraints
   for (const auto& var : vars)
   {
-    const trajopt_ifopt::CartPosInfo cart_info(
+    trajopt_ifopt::CartPosInfo cart_info(
         manip, "r_gripper_tool_frame", "base_footprint", Eigen::Isometry3d::Identity(), target_pose);
     auto cnt = std::make_shared<trajopt_ifopt::CartPosConstraint>(cart_info, var);
     qp_problem->addConstraintSet(cnt);
@@ -129,13 +126,13 @@ void runCartPositionOptimization(const trajopt_sqp::QPProblem::Ptr& qp_problem,
 
   auto optimized_pose = manip->calcFwdKin(x).at("r_gripper_tool_frame");
   EXPECT_TRUE(target_pose.translation().isApprox(optimized_pose.translation(), 1e-4));
-  const Eigen::Quaterniond target_q(target_pose.rotation());
-  const Eigen::Quaterniond optimized_q(optimized_pose.rotation());
+  Eigen::Quaterniond target_q(target_pose.rotation());
+  Eigen::Quaterniond optimized_q(optimized_pose.rotation());
   EXPECT_TRUE(target_q.isApprox(optimized_q, 1e-5));
 
   if (DEBUG)
   {
-    std::cout << x.transpose() << '\n';
+    std::cout << x.transpose() << std::endl;
     qp_problem->print();
   }
 }

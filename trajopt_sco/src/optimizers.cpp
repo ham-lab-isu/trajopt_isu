@@ -4,6 +4,7 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <cmath>
 #include <chrono>
 #include <cstdio>
+#include <thread>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_sco/expr_ops.hpp>
@@ -12,6 +13,7 @@ TRAJOPT_IGNORE_WARNINGS_POP
 #include <trajopt_sco/sco_common.hpp>
 #include <trajopt_sco/solver_interface.hpp>
 #include <trajopt_common/logging.hpp>
+#include <trajopt_common/macros.h>
 #include <trajopt_common/stl_to_string.hpp>
 
 namespace sco
@@ -20,17 +22,15 @@ const bool SUPER_DEBUG_MODE = false;
 
 std::ostream& operator<<(std::ostream& o, const OptResults& r)
 {
-  o << "Optimization results:" << '\n'
-    << "status: " << statusToString(r.status) << '\n'
-    << "cost values: " << trajopt_common::Str(r.cost_vals) << '\n'
-    << "constraint violations: " << trajopt_common::Str(r.cnt_viols) << '\n'
-    << "n func evals: " << r.n_func_evals << '\n'
-    << "n qp solves: " << r.n_qp_solves << '\n';
+  o << "Optimization results:" << std::endl
+    << "status: " << statusToString(r.status) << std::endl
+    << "cost values: " << trajopt_common::Str(r.cost_vals) << std::endl
+    << "constraint violations: " << trajopt_common::Str(r.cnt_viols) << std::endl
+    << "n func evals: " << r.n_func_evals << std::endl
+    << "n qp solves: " << r.n_qp_solves << std::endl;
   return o;
 }
 
-namespace
-{
 // todo: use different coeffs for each constraint
 std::vector<ConvexObjective::Ptr> cntsToCosts(const std::vector<ConvexConstraints::Ptr>& cnts,
                                               const std::vector<double>& err_coeffs,
@@ -55,7 +55,6 @@ std::vector<ConvexObjective::Ptr> cntsToCosts(const std::vector<ConvexConstraint
   }
   return out;
 }
-}  // namespace
 
 void Optimizer::addCallback(const Callback& cb) { callbacks_.push_back(cb); }
 void Optimizer::callCallbacks()
@@ -77,6 +76,28 @@ void Optimizer::initialize(const DblVec& x)
   results_.x = x;
 }
 
+BasicTrustRegionSQPParameters::BasicTrustRegionSQPParameters()
+{
+  improve_ratio_threshold = 0.25;
+  min_trust_box_size = 1e-4;
+  min_approx_improve = 1e-4;
+  min_approx_improve_frac = static_cast<double>(-INFINITY);
+  max_iter = 50;
+  trust_shrink_ratio = 0.1;
+  trust_expand_ratio = 1.5;
+  cnt_tolerance = 1e-4;
+  max_merit_coeff_increases = 5;
+  max_qp_solver_failures = 3;
+  merit_coeff_increase_ratio = 10;
+  max_time = static_cast<double>(INFINITY);
+  initial_merit_error_coeff = 10;
+  inflate_constraints_individually = true;
+  trust_box_size = 1e-1;
+  log_results = false;
+  log_dir = "/tmp";
+  num_threads = 0;
+}
+
 BasicTrustRegionSQP::BasicTrustRegionSQP(const OptProb::Ptr& prob) { ctor(prob); }
 void BasicTrustRegionSQP::setProblem(OptProb::Ptr prob) { ctor(prob); }
 void BasicTrustRegionSQP::setParameters(const BasicTrustRegionSQPParameters& param) { param_ = param; }
@@ -94,11 +115,9 @@ void BasicTrustRegionSQP::setTrustBoxConstraints(const DblVec& x)
 {
   const VarVector& vars = prob_->getVars();
   assert(vars.size() == x.size());
-  const DblVec& lb = prob_->getLowerBounds();
-  const DblVec ub = prob_->getUpperBounds();
-  DblVec lbtrust(x.size());
-  DblVec ubtrust(x.size());
-  for (std::size_t i = 0; i < x.size(); ++i)
+  const DblVec &lb = prob_->getLowerBounds(), ub = prob_->getUpperBounds();
+  DblVec lbtrust(x.size()), ubtrust(x.size());
+  for (size_t i = 0; i < x.size(); ++i)
   {
     lbtrust[i] = fmax(x[i] - param_.trust_box_size, lb[i]);
     ubtrust[i] = fmin(x[i] + param_.trust_box_size, ub[i]);
@@ -113,7 +132,7 @@ void BasicTrustRegionSQP::setTrustBoxConstraints(const DblVec& x)
 DblVec BasicTrustRegionSQP::evaluateCosts(const std::vector<Cost::Ptr>& costs, const DblVec& x) const
 {
   DblVec out(costs.size());
-  for (std::size_t i = 0; i < costs.size(); ++i)
+  for (size_t i = 0; i < costs.size(); ++i)
     out[i] = costs[i]->value(x);
 
   return out;
@@ -122,7 +141,7 @@ DblVec BasicTrustRegionSQP::evaluateCosts(const std::vector<Cost::Ptr>& costs, c
 DblVec BasicTrustRegionSQP::evaluateConstraintViols(const std::vector<Constraint::Ptr>& cnts, const DblVec& x) const
 {
   DblVec out(cnts.size());
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     out[i] = cnts[i]->violation(x);
 
   return out;
@@ -133,7 +152,7 @@ std::vector<ConvexObjective::Ptr> BasicTrustRegionSQP::convexifyCosts(const std:
                                                                       Model* model) const
 {
   std::vector<ConvexObjective::Ptr> out(costs.size());
-  for (std::size_t i = 0; i < costs.size(); ++i)
+  for (size_t i = 0; i < costs.size(); ++i)
     out[i] = costs[i]->convex(x, model);
 
   return out;
@@ -144,7 +163,7 @@ std::vector<ConvexConstraints::Ptr> BasicTrustRegionSQP::convexifyConstraints(co
                                                                               Model* model) const
 {
   std::vector<ConvexConstraints::Ptr> out(cnts.size());
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     out[i] = cnts[i]->convex(x, model);
 
   return out;
@@ -153,7 +172,7 @@ std::vector<ConvexConstraints::Ptr> BasicTrustRegionSQP::convexifyConstraints(co
 DblVec BasicTrustRegionSQP::evaluateModelCosts(const std::vector<ConvexObjective::Ptr>& costs, const DblVec& x) const
 {
   DblVec out(costs.size());
-  for (std::size_t i = 0; i < costs.size(); ++i)
+  for (size_t i = 0; i < costs.size(); ++i)
     out[i] = costs[i]->value(x);
 
   return out;
@@ -163,7 +182,7 @@ DblVec BasicTrustRegionSQP::evaluateModelCntViols(const std::vector<ConvexConstr
                                                   const DblVec& x) const
 {
   DblVec out(cnts.size());
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     out[i] = cnts[i]->violation(x);
 
   return out;
@@ -172,7 +191,7 @@ DblVec BasicTrustRegionSQP::evaluateModelCntViols(const std::vector<ConvexConstr
 std::vector<std::string> BasicTrustRegionSQP::getCostNames(const std::vector<Cost::Ptr>& costs) const
 {
   std::vector<std::string> out(costs.size());
-  for (std::size_t i = 0; i < costs.size(); ++i)
+  for (size_t i = 0; i < costs.size(); ++i)
     out[i] = costs[i]->name();
 
   return out;
@@ -181,7 +200,7 @@ std::vector<std::string> BasicTrustRegionSQP::getCostNames(const std::vector<Cos
 std::vector<std::string> BasicTrustRegionSQP::getCntNames(const std::vector<Constraint::Ptr>& cnts) const
 {
   std::vector<std::string> out(cnts.size());
-  for (std::size_t i = 0; i < cnts.size(); ++i)
+  for (size_t i = 0; i < cnts.size(); ++i)
     out[i] = cnts[i]->name();
   return out;
 }
@@ -311,6 +330,12 @@ BasicTrustRegionSQPResults::BasicTrustRegionSQPResults(std::vector<std::string> 
   old_cost_vals.clear();
   new_cnt_viols.clear();
   old_cnt_viols.clear();
+  old_merit = 0;
+  model_merit = 0;
+  new_merit = 0;
+  approx_merit_improve = 0;
+  exact_merit_improve = 0;
+  merit_improve_ratio = 0;
   merit_error_coeffs = std::vector<double>(this->cnt_names.size(), 0);
 }
 
@@ -334,7 +359,7 @@ void BasicTrustRegionSQPResults::update(const OptResults& prev_opt_results,
 
   if (trajopt_common::GetLogLevel() >= trajopt_common::LevelDebug)
   {
-    const DblVec cnt_costs1 = parent_.evaluateModelCosts(cnt_cost_models, model_var_vals);
+    DblVec cnt_costs1 = parent_.evaluateModelCosts(cnt_cost_models, model_var_vals);
     DblVec cnt_costs2 = model_cnt_viols;
     for (unsigned i = 0; i < cnt_costs2.size(); ++i)
       cnt_costs2[i] *= merit_error_coeffs[i];
@@ -365,106 +390,99 @@ void BasicTrustRegionSQPResults::update(const OptResults& prev_opt_results,
 void BasicTrustRegionSQPResults::print() const
 {
   // Print Header
-  std::printf("\n| %s |\n", std::string(88, '=').c_str());
-  std::printf("| %s %s %s |\n", std::string(36, ' ').c_str(), "ROS Industrial", std::string(36, ' ').c_str());
-  std::printf("| %s %s %s |\n", std::string(32, ' ').c_str(), "TrajOpt Motion Planning", std::string(31, ' ').c_str());
-  std::printf("| %s |\n", std::string(88, '=').c_str());
+  std::printf("\n| %s |\n", std::string(75, '=').c_str());
+  std::printf("| %s %s %s |\n", std::string(29, ' ').c_str(), "ROS Industrial", std::string(30, ' ').c_str());
+  std::printf("| %s %s %s |\n", std::string(25, ' ').c_str(), "TrajOpt Motion Planning", std::string(25, ' ').c_str());
+  std::printf("| %s |\n", std::string(75, '=').c_str());
 
   // Print Cost and Constraint Data
-  std::printf("| %10s | %10s | %10s | %10s | %10s | %10s | %10s |\n",
+  std::printf("| %10s | %10s | %10s | %10s | %10s | %10s | -%15s \n",
               "merit",
               "oldexact",
               "new_exact",
-              "new_approx",
               "dapprox",
               "dexact",
-              "ratio");
-  std::printf("| %s | COSTS\n", std::string(88, '-').c_str());
-  for (std::size_t i = 0; i < old_cost_vals.size(); ++i)
+              "ratio",
+              "");
+  std::printf("| %s | COSTS\n", std::string(75, '-').c_str());
+  for (size_t i = 0; i < old_cost_vals.size(); ++i)
   {
-    const double approx_improve = old_cost_vals[i] - model_cost_vals[i];
-    const double exact_improve = old_cost_vals[i] - new_cost_vals[i];
+    double approx_improve = old_cost_vals[i] - model_cost_vals[i];
+    double exact_improve = old_cost_vals[i] - new_cost_vals[i];
     if (fabs(approx_improve) > 1e-8)
-      std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s \n",
+      std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s \n",
                   "----------",
                   old_cost_vals[i],
                   new_cost_vals[i],
-                  model_cost_vals[i],
                   approx_improve,
                   exact_improve,
                   exact_improve / approx_improve,
                   cost_names[i].c_str());
     else
-      std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10s | %-15s \n",
+      std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10s | %-15s \n",
                   "----------",
                   old_cost_vals[i],
                   new_cost_vals[i],
-                  model_cost_vals[i],
                   approx_improve,
                   exact_improve,
-                  "----------",
+                  "  ------  ",
                   cost_names[i].c_str());
   }
-  std::printf("| %s |\n", std::string(88, '=').c_str());
-  std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10s | %10s | %10s | SUM COSTS\n",
+  std::printf("| %s |\n", std::string(75, '=').c_str());
+  std::printf("| %10s | %10.3e | %10.3e | %10s | %10s | %10s | SUM COSTS \n",
               "----------",
               vecSum(old_cost_vals),
               vecSum(new_cost_vals),
-              vecSum(model_cost_vals),
-              "----------",
-              "----------",
-              "----------");
-  std::printf("| %s |\n", std::string(88, '=').c_str());
+              "  ------  ",
+              "  ------  ",
+              "  ------  ");
+  std::printf("| %s |\n", std::string(75, '=').c_str());
 
   if (!cnt_names.empty())
   {
-    std::printf("| %s | CONSTRAINTS\n", std::string(88, '-').c_str());
-    for (std::size_t i = 0; i < old_cnt_viols.size(); ++i)
+    std::printf("| %s | CONSTRAINTS\n", std::string(75, '-').c_str());
+    for (size_t i = 0; i < old_cnt_viols.size(); ++i)
     {
-      const double approx_improve = old_cnt_viols[i] - model_cnt_viols[i];
-      const double exact_improve = old_cnt_viols[i] - new_cnt_viols[i];
+      double approx_improve = old_cnt_viols[i] - model_cnt_viols[i];
+      double exact_improve = old_cnt_viols[i] - new_cnt_viols[i];
       if (fabs(approx_improve) > 1e-8)
-        std::printf("| %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s \n",
+        std::printf("| %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %-15s \n",
                     merit_error_coeffs[i],
                     merit_error_coeffs[i] * old_cnt_viols[i],
                     merit_error_coeffs[i] * new_cnt_viols[i],
-                    merit_error_coeffs[i] * model_cnt_viols[i],
                     merit_error_coeffs[i] * approx_improve,
                     merit_error_coeffs[i] * exact_improve,
                     exact_improve / approx_improve,
                     cnt_names[i].c_str());
       else
-        std::printf("| %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10s | %-15s \n",
+        std::printf("| %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | %10s | %-15s \n",
                     merit_error_coeffs[i],
                     merit_error_coeffs[i] * old_cnt_viols[i],
                     merit_error_coeffs[i] * new_cnt_viols[i],
-                    merit_error_coeffs[i] * model_cnt_viols[i],
                     merit_error_coeffs[i] * approx_improve,
                     merit_error_coeffs[i] * exact_improve,
-                    "----------",
+                    "  ------  ",
                     cnt_names[i].c_str());
     }
   }
-  std::printf("| %s |\n", std::string(88, '=').c_str());
-  std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10s | %10s | %10s | SUM CONSTRAINTS (WITHOUT MERIT) \n",
+  std::printf("| %s |\n", std::string(75, '=').c_str());
+  std::printf("| %10s | %10.3e | %10.3e | %10s | %10s | %10s | SUM CONSTRAINTS (WITHOUT MERIT) \n",
               "----------",
               vecSum(old_cnt_viols),
               vecSum(new_cnt_viols),
-              vecSum(model_cnt_viols),
-              "----------",
-              "----------",
-              "----------");
-  std::printf("| %s |\n", std::string(88, '=').c_str());
-  std::printf("| %10s | %10.3e | %10.3e | %10s | %10.3e | %10.3e | %10.3e | TOTAL = SUM COSTS + SUM CONSTRAINTS (WITH "
+              "  ------  ",
+              "  ------  ",
+              "  ------  ");
+  std::printf("| %s |\n", std::string(75, '=').c_str());
+  std::printf("| %10s | %10.3e | %10.3e | %10.3e | %10.3e | %10.3e | TOTAL = SUM COSTS + SUM CONSTRAINTS (WITH "
               "MERIT)\n",
               "----------",
               old_merit,
               new_merit,
-              "----------",
               approx_merit_improve,
               exact_merit_improve,
               merit_improve_ratio);
-  std::printf("| %s |\n", std::string(88, '=').c_str());
+  std::printf("| %s |\n", std::string(75, '=').c_str());
 }
 
 void BasicTrustRegionSQPResults::writeSolver(std::FILE* stream, bool header) const
@@ -513,17 +531,17 @@ void BasicTrustRegionSQPResults::writeCosts(std::FILE* stream, bool header) cons
     std::fprintf(stream, "\n");
 
     std::fprintf(stream, "%s", "DESCRIPTION");
-    for (std::size_t i = 0; i < cost_names.size(); ++i)
+    for (size_t i = 0; i < cost_names.size(); ++i)
       std::fprintf(stream, ",%s,%s,%s,%s", "oldexact", "dapprox", "dexact", "ratio");
 
     std::fprintf(stream, "\n");
   }
 
   std::fprintf(stream, "%s", "COSTS");
-  for (std::size_t i = 0; i < old_cost_vals.size(); ++i)
+  for (size_t i = 0; i < old_cost_vals.size(); ++i)
   {
-    const double approx_improve = old_cost_vals[i] - model_cost_vals[i];
-    const double exact_improve = old_cost_vals[i] - new_cost_vals[i];
+    double approx_improve = old_cost_vals[i] - model_cost_vals[i];
+    double exact_improve = old_cost_vals[i] - new_cost_vals[i];
     if (fabs(approx_improve) > 1e-8)
     {
       std::fprintf(
@@ -549,17 +567,17 @@ void BasicTrustRegionSQPResults::writeConstraints(std::FILE* stream, bool header
     std::fprintf(stream, "\n");
 
     std::fprintf(stream, "%s", "DESCRIPTION");
-    for (std::size_t i = 0; i < cnt_names.size(); ++i)
+    for (size_t i = 0; i < cnt_names.size(); ++i)
       std::fprintf(stream, ",%s,%s,%s,%s", "oldexact", "dapprox", "dexact", "ratio");
 
     std::fprintf(stream, "\n");
   }
 
   std::fprintf(stream, "%s", "CONSTRAINTS");
-  for (std::size_t i = 0; i < old_cnt_viols.size(); ++i)
+  for (size_t i = 0; i < old_cnt_viols.size(); ++i)
   {
-    const double approx_improve = old_cnt_viols[i] - model_cnt_viols[i];
-    const double exact_improve = old_cnt_viols[i] - new_cnt_viols[i];
+    double approx_improve = old_cnt_viols[i] - model_cnt_viols[i];
+    double exact_improve = old_cnt_viols[i] - new_cnt_viols[i];
     if (fabs(approx_improve) > 1e-8)
     {
       std::fprintf(stream,
@@ -635,9 +653,9 @@ void BasicTrustRegionSQPResults::printRaw() const
 
 OptStatus BasicTrustRegionSQP::optimize()
 {
-  const std::vector<std::string> var_names = getVarNames(prob_->getVars());
-  const std::vector<std::string> cost_names = getCostNames(prob_->getCosts());
-  const std::vector<Constraint::Ptr> constraints = prob_->getConstraints();
+  std::vector<std::string> var_names = getVarNames(prob_->getVars());
+  std::vector<std::string> cost_names = getCostNames(prob_->getCosts());
+  std::vector<Constraint::Ptr> constraints = prob_->getConstraints();
   std::vector<std::string> cnt_names = getCntNames(constraints);
   std::vector<double> merit_error_coeffs(constraints.size(), param_.initial_merit_error_coeff);
   BasicTrustRegionSQPResults iteration_results(var_names, cost_names, cnt_names, *this);
@@ -673,7 +691,7 @@ OptStatus BasicTrustRegionSQP::optimize()
   { /* merit adjustment loop */
     for (int iter = 1;; ++iter)
     { /* sqp loop */
-      const double elapsed_time = std::chrono::duration<double, std::milli>(Clock::now() - start_time).count() / 1000.0;
+      double elapsed_time = std::chrono::duration<double, std::milli>(Clock::now() - start_time).count() / 1000.0;
       if (elapsed_time > param_.max_time)
       {
         LOG_INFO("Elapsed time %f has exceeded max time %f", elapsed_time, param_.max_time);
@@ -715,21 +733,19 @@ OptStatus BasicTrustRegionSQP::optimize()
       //   results_.cost_vals[i] << endl;
       // }
 
-      const std::vector<ConvexObjective::Ptr> cost_models = convexifyCosts(prob_->getCosts(), results_.x, model_.get());
-      const std::vector<ConvexConstraints::Ptr> cnt_models =
-          convexifyConstraints(constraints, results_.x, model_.get());
-      const std::vector<ConvexObjective::Ptr> cnt_cost_models =
-          cntsToCosts(cnt_models, merit_error_coeffs, model_.get());
+      std::vector<ConvexObjective::Ptr> cost_models = convexifyCosts(prob_->getCosts(), results_.x, model_.get());
+      std::vector<ConvexConstraints::Ptr> cnt_models = convexifyConstraints(constraints, results_.x, model_.get());
+      std::vector<ConvexObjective::Ptr> cnt_cost_models = cntsToCosts(cnt_models, merit_error_coeffs, model_.get());
       model_->update();
-      for (const ConvexObjective::Ptr& cost : cost_models)
+      for (ConvexObjective::Ptr& cost : cost_models)
         cost->addConstraintsToModel();
-      for (const ConvexObjective::Ptr& cost : cnt_cost_models)
+      for (ConvexObjective::Ptr& cost : cnt_cost_models)
         cost->addConstraintsToModel();
       model_->update();
       QuadExpr objective;
-      for (const ConvexObjective::Ptr& co : cost_models)
+      for (ConvexObjective::Ptr& co : cost_models)
         exprInc(objective, co->quad_);
-      for (const ConvexObjective::Ptr& co : cnt_cost_models)
+      for (ConvexObjective::Ptr& co : cnt_cost_models)
         exprInc(objective, co->quad_);
 
       //    objective = cleanupExpr(objective);
@@ -748,7 +764,7 @@ OptStatus BasicTrustRegionSQP::optimize()
       while (param_.trust_box_size >= param_.min_trust_box_size)
       {
         setTrustBoxConstraints(results_.x);
-        const CvxOptStatus status = model_->optimize();
+        CvxOptStatus status = model_->optimize();
 
         ++results_.n_qp_solves;
         if (status != CVX_SOLVED)
@@ -915,7 +931,6 @@ cleanup:
   LOG_INFO("\n==================\n%s==================", CSTR(results_));
   callCallbacks();
 
-  // NOLINTBEGIN(clang-analyzer-core.NonNullParamChecker)
   if (param_.log_results || trajopt_common::GetLogLevel() >= trajopt_common::LevelDebug)
   {
     std::fclose(log_solver_stream);
@@ -923,7 +938,6 @@ cleanup:
     std::fclose(log_costs_stream);
     std::fclose(log_constraints_stream);
   }
-  // NOLINTEND(clang-analyzer-core.NonNullParamChecker)
 
   return retval;
 }

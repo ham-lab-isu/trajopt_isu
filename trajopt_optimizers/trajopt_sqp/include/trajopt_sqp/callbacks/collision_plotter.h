@@ -28,35 +28,36 @@
 
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <tesseract_visualization/fwd.h>
-#include <trajopt_ifopt/fwd.h>
-#include <vector>
+#include <ifopt/problem.h>
+#include <tesseract_visualization/visualization.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
+#include <trajopt_ifopt/constraints/collision/discrete_collision_constraint.h>
 #include <trajopt_sqp/sqp_callback.h>
+#include <trajopt_sqp/trust_region_sqp_solver.h>
+#include <trajopt_sqp/types.h>
 
 namespace trajopt_sqp
 {
-class CollisionPlottingCallback : public SQPCallback
+class CollisionPlottingCallback : public trajopt_sqp::SQPCallback
 {
 public:
   using Ptr = std::shared_ptr<CollisionPlottingCallback>;
   using ConstPtr = std::shared_ptr<const CollisionPlottingCallback>;
 
-  CollisionPlottingCallback(std::shared_ptr<tesseract_visualization::Visualization> plotter);
+  CollisionPlottingCallback(tesseract_visualization::Visualization::Ptr plotter);
 
   void plot(const QPProblem& problem);
 
-  void addConstraintSet(const std::shared_ptr<const trajopt_ifopt::DiscreteCollisionConstraint>& collision_constraint);
+  void addConstraintSet(const trajopt_ifopt::DiscreteCollisionConstraint::ConstPtr& collision_constraint);
 
-  void addConstraintSet(
-      const std::vector<std::shared_ptr<const trajopt_ifopt::DiscreteCollisionConstraint>>& collision_constraints);
+  void addConstraintSet(const std::vector<trajopt_ifopt::DiscreteCollisionConstraint::ConstPtr>& collision_constraints);
 
-  bool execute(const QPProblem& problem, const SQPResults& sqp_results) override;
+  bool execute(const QPProblem& problem, const trajopt_sqp::SQPResults& sqp_results) override;
 
 protected:
-  std::vector<std::shared_ptr<const trajopt_ifopt::DiscreteCollisionConstraint>> collision_constraints_;
-  std::shared_ptr<tesseract_visualization::Visualization> plotter_;
+  std::vector<trajopt_ifopt::DiscreteCollisionConstraint::ConstPtr> collision_constraints_;
+  tesseract_visualization::Visualization::Ptr plotter_;
 };
 }  // namespace trajopt_sqp
 

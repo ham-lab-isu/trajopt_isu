@@ -2,39 +2,6 @@
 Changelog for package trajopt
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-0.23.2 (2024-07-31)
--------------------
-* Add Mac OS GitHub action (`#418 <https://github.com/tesseract-robotics/trajopt/issues/418>`_)
-* Contributors: John Wason
-
-0.23.1 (2024-07-24)
--------------------
-
-0.23.0 (2024-07-24)
--------------------
-* Trajopt clang-tidy clean-up v3 (`#414 <https://github.com/tesseract-robotics/trajopt/issues/414>`_)
-* Trajopt clang-tidy clean-up v2
-* Trajopt clang-tidy clean-up (`#411 <https://github.com/tesseract-robotics/trajopt/issues/411>`_)
-* Fixes for building on Ubuntu Noble
-* Various include cleanups and clang-tidy fixes, and an error message fix.
-* Contributors: Roelof Oomen
-
-0.22.0 (2024-06-02)
--------------------
-* Fix incorrect assert in collision term single time step weighted method
-* Update to leverage forward declarations
-* Update to use transform error diff function for numerical jacobian (`#386 <https://github.com/tesseract-robotics/trajopt/issues/386>`_)
-* Fixed issue where we were trying to reduce the error in two places (`#383 <https://github.com/tesseract-robotics/trajopt/issues/383>`_)
-* Add conda tests (`#380 <https://github.com/tesseract-robotics/trajopt/issues/380>`_)
-* Add toleranced Cartesian waypoints to solver (`#354 <https://github.com/tesseract-robotics/trajopt/issues/354>`_)
-* Contributors: John Wason, Levi Armstrong, Tyler Marr
-
-0.7.2 (2023-11-27)
-------------------
-
-0.7.1 (2023-11-22)
-------------------
-
 0.7.0 (2023-11-07)
 ------------------
 

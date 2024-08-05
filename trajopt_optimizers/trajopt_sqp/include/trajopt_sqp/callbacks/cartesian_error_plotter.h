@@ -28,12 +28,14 @@
 
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <tesseract_visualization/fwd.h>
-#include <trajopt_ifopt/fwd.h>
-#include <vector>
+#include <ifopt/problem.h>
+#include <tesseract_visualization/visualization.h>
 TRAJOPT_IGNORE_WARNINGS_POP
 
 #include <trajopt_sqp/sqp_callback.h>
+#include <trajopt_sqp/types.h>
+#include <trajopt_sqp/trust_region_sqp_solver.h>
+#include <trajopt_ifopt/constraints/cartesian_position_constraint.h>
 
 namespace trajopt_sqp
 {
@@ -41,7 +43,7 @@ namespace trajopt_sqp
  * @brief SQPCallback the error of a CartPosConstraint. It plots an axis at the target and the current position with an
  * arrow between them
  */
-class CartesianErrorPlottingCallback : public SQPCallback
+class CartesianErrorPlottingCallback : public trajopt_sqp::SQPCallback
 {
 public:
   using Ptr = std::shared_ptr<CartesianErrorPlottingCallback>;
@@ -51,7 +53,7 @@ public:
    * @brief Callback constructor
    * @param plotter Plotter used to plot the error
    */
-  CartesianErrorPlottingCallback(std::shared_ptr<tesseract_visualization::Visualization> plotter);
+  CartesianErrorPlottingCallback(tesseract_visualization::Visualization::Ptr plotter);
 
   /**
    * @brief Plots the error
@@ -63,19 +65,19 @@ public:
    * @brief addConstraintSet Adds a constraint set to be plotted
    * @param cart_position_cnt Constraint to be plotted
    */
-  void addConstraintSet(const std::shared_ptr<const trajopt_ifopt::CartPosConstraint>& cart_position_cnt);
+  void addConstraintSet(const trajopt_ifopt::CartPosConstraint::ConstPtr& cart_position_cnt);
 
   /**
    * @brief addConstraintSet Adds a vector of constraint sets to be plotted
    * @param cart_position_cnts Vector of constraints to be plotted
    */
-  void addConstraintSet(const std::vector<std::shared_ptr<const trajopt_ifopt::CartPosConstraint>>& cart_position_cnts);
+  void addConstraintSet(const std::vector<trajopt_ifopt::CartPosConstraint::ConstPtr>& cart_position_cnts);
 
-  bool execute(const QPProblem& problem, const SQPResults& sqp_results) override;
+  bool execute(const QPProblem& problem, const trajopt_sqp::SQPResults& sqp_results) override;
 
 protected:
-  std::vector<std::shared_ptr<const trajopt_ifopt::CartPosConstraint>> cart_position_cnts_;
-  std::shared_ptr<tesseract_visualization::Visualization> plotter_;
+  std::vector<trajopt_ifopt::CartPosConstraint::ConstPtr> cart_position_cnts_;
+  tesseract_visualization::Visualization::Ptr plotter_;
 };
 }  // namespace trajopt_sqp
 

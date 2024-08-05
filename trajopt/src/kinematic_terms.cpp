@@ -4,11 +4,7 @@ TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <Eigen/Core>
 #include <boost/format.hpp>
 #include <iostream>
-#include <tesseract_common/eigen_types.h>
-#include <tesseract_kinematics/core/joint_group.h>
 #include <tesseract_kinematics/core/utils.h>
-#include <tesseract_scene_graph/link.h>
-#include <tesseract_visualization/visualization.h>
 #include <tesseract_visualization/markers/axis_marker.h>
 #include <tesseract_visualization/markers/arrow_marker.h>
 TRAJOPT_IGNORE_WARNINGS_POP
@@ -33,99 +29,13 @@ using Eigen::VectorXd;
 
 namespace trajopt
 {
-// Function to apply tolerances to error values
-Eigen::VectorXd applyTolerances(const Eigen::VectorXd& error,
-                                const Eigen::VectorXd& lower_tolerance,
-                                const Eigen::VectorXd& upper_tolerance)
-{
-  Eigen::VectorXd resultant(error.size());
-
-  if (error.size() > lower_tolerance.size() || error.size() > upper_tolerance.size())
-  {
-    std::stringstream error_ss;
-    error_ss << "applyTolerances: error vector size greater than tolerance vector size: ";
-    error_ss << lower_tolerance.size() << ", upper: " << upper_tolerance.size() << ", error: " << error.size();
-    throw std::runtime_error(error_ss.str());
-  }
-
-  // Iterate through each element
-  for (int i = 0; i < error.size(); ++i)
-  {
-    // If error is within tolerances, set resultant to 0
-    if (error(i) >= lower_tolerance(i) && error(i) <= upper_tolerance(i))
-    {
-      resultant(i) = 0.0;
-    }
-    // If error is below lower tolerance, set resultant to error - lower_tolerance
-    else if (error(i) < lower_tolerance(i))
-    {
-      resultant(i) = error(i) - lower_tolerance(i);
-    }
-    // If error is above upper tolerance, set resultant to error - upper_tolerance
-    else if (error(i) > upper_tolerance(i))
-    {
-      resultant(i) = error(i) - upper_tolerance(i);
-    }
-  }
-
-  return resultant;
-}
-
-DynamicCartPoseErrCalculator::DynamicCartPoseErrCalculator(
-    std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-    std::string source_frame,
-    std::string target_frame,
-    const Eigen::Isometry3d& source_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::Isometry3d& target_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXi& indices,                // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXd& lower_tolerance,        // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXd& upper_tolerance)        // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip))
-  , source_frame_(std::move(source_frame))
-  , target_frame_(std::move(target_frame))
-  , source_frame_offset_(source_frame_offset)
-  , target_frame_offset_(target_frame_offset)
-  , indices_(indices)
-{
-  assert(indices_.size() <= 6);
-
-  if (lower_tolerance.size() != upper_tolerance.size())
-  {
-    std::stringstream error_ss;
-    error_ss << "CartPoseErrCalculator: Mismatched tolerance sizes. lower: " << lower_tolerance.size()
-             << ", upper: " << upper_tolerance.size();
-    throw std::runtime_error(error_ss.str());
-  }
-
-  // Check to see if the waypoint is toleranced and set the error function accordingly
-  if ((lower_tolerance.size() == 0 && upper_tolerance.size() == 0) ||
-      tesseract_common::almostEqualRelativeAndAbs(lower_tolerance, upper_tolerance))
-  {
-    error_function = [this](const Eigen::Isometry3d& target_tf, const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-      return tesseract_common::calcTransformError(target_tf, source_tf);
-    };
-  }
-  else
-  {
-    error_function = [lower_tolerance, upper_tolerance](const Eigen::Isometry3d& target_tf,
-                                                        const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-      // Calculate the error using tesseract_common::calcTransformError or equivalent
-      const VectorXd err = tesseract_common::calcTransformError(target_tf, source_tf);
-
-      // Apply tolerances
-      return applyTolerances(err, lower_tolerance, upper_tolerance);
-    };
-  }
-}
-
 VectorXd DynamicCartPoseErrCalculator::operator()(const VectorXd& dof_vals) const
 {
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
-  const Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
-  const Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
+  Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
+  Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
 
-  VectorXd err = error_function(target_tf, source_tf);
-
+  VectorXd err = tesseract_common::calcTransformError(target_tf, source_tf);
   VectorXd reduced_err(indices_.size());
   for (int i = 0; i < indices_.size(); ++i)
     reduced_err[i] = err[indices_[i]];
@@ -133,7 +43,7 @@ VectorXd DynamicCartPoseErrCalculator::operator()(const VectorXd& dof_vals) cons
   return reduced_err;  // This is available in 3.4 err(indices_, Eigen::all);
 }
 
-void DynamicCartPoseErrCalculator::Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter,
+void DynamicCartPoseErrCalculator::Plot(const tesseract_visualization::Visualization::Ptr& plotter,
                                         const VectorXd& dof_vals)
 {
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
@@ -154,133 +64,69 @@ void DynamicCartPoseErrCalculator::Plot(const std::shared_ptr<tesseract_visualiz
   plotter->plotMarker(m3);
 }
 
-DynamicCartPoseJacCalculator::DynamicCartPoseJacCalculator(
-    std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-    std::string source_frame,
-    std::string target_frame,
-    const Eigen::Isometry3d& source_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::Isometry3d& target_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXi& indices)                // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip))
-  , source_frame_(std::move(source_frame))
-  , source_frame_offset_(source_frame_offset)
-  , target_frame_(std::move(target_frame))
-  , target_frame_offset_(target_frame_offset)
-  , indices_(indices)
-  , epsilon_(DEFAULT_EPSILON)
-{
-  assert(indices_.size() <= 6);
-}
-
 MatrixXd DynamicCartPoseJacCalculator::operator()(const VectorXd& dof_vals) const
 {
-  // Duplicated from calcForwardNumJac in trajopt_sco/src/num_diff.cpp, but with ignoring tolerances
+  auto n_dof = static_cast<int>(manip_->numJoints());
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
-  const Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
-  const Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
 
-  Eigen::MatrixXd jac0(indices_.size(), dof_vals.size());
-  Eigen::VectorXd dof_vals_pert = dof_vals;
-  for (int i = 0; i < dof_vals.size(); ++i)
+  Eigen::Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
+  Eigen::Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
+
+  // Get the jacobian of link in the targets coordinate system
+  MatrixXd jac_link =
+      manip_->calcJacobian(dof_vals, manip_->getBaseLinkName(), source_frame_, source_frame_offset_.translation());
+  tesseract_common::jacobianChangeBase(jac_link, target_tf.inverse());
+
+  // Get the jacobian of the target in the targets coordinate system
+  MatrixXd jac_target =
+      manip_->calcJacobian(dof_vals, manip_->getBaseLinkName(), target_frame_, target_frame_offset_.translation());
+  tesseract_common::jacobianChangeBase(jac_target, target_tf.inverse());
+  tesseract_common::jacobianChangeRefPoint(jac_target, (target_tf.inverse() * source_tf).translation());
+
+  MatrixXd jac0 = jac_link - jac_target;
+
+  // Paper:
+  // https://ethz.ch/content/dam/ethz/special-interest/mavt/robotics-n-intelligent-systems/rsl-dam/documents/RobotDynamics2016/RD2016script.pdf
+  // The jacobian of the robot is the geometric jacobian (Je) which maps generalized velocities in
+  // joint space to time derivatives of the end-effector configuration representation. It does not
+  // represent the analytic jacobian (Ja) given by a partial differentiation of position and rotation
+  // to generalized coordinates. Since the geometric jacobian is unique there exists a linear mapping
+  // between velocities and the derivatives of the representation.
+  //
+  // The approach in the paper was tried but it was having issues with getting correct jacobian.
+  // Must of had an error in the implementation so should revisit at another time but the approach
+  // below should be sufficient and faster than numerical calculations using the err function.
+
+  // The approach below leverages the geometric jacobian and a small step in time to approximate
+  // the partial derivative of the error function. Note that the rotational portion is the only part
+  // that is required to be modified per the paper.
+  Isometry3d pose_err = target_tf.inverse() * source_tf;
+  Eigen::Vector3d rot_err = tesseract_common::calcRotationalError(pose_err.rotation());
+  for (int c = 0; c < jac0.cols(); ++c)
   {
-    dof_vals_pert(i) = dof_vals(i) + epsilon_;
-    tesseract_common::TransformMap state_pert = manip_->calcFwdKin(dof_vals_pert);
-    const Isometry3d source_tf_pert = state_pert[source_frame_] * source_frame_offset_;
-    const Isometry3d target_tf_pert = state_pert[target_frame_] * target_frame_offset_;
-    VectorXd error_diff =
-        tesseract_common::calcJacobianTransformErrorDiff(target_tf, target_tf_pert, source_tf, source_tf_pert);
-
-    VectorXd reduced_error_diff(indices_.size());
-    for (int i = 0; i < indices_.size(); ++i)
-      reduced_error_diff[i] = error_diff[indices_[i]];
-
-    jac0.col(i) = reduced_error_diff / epsilon_;
-    dof_vals_pert(i) = dof_vals(i);
+    auto new_pose_err = trajopt_common::addTwist(pose_err, jac0.col(c), 1e-5);
+    Eigen::VectorXd new_rot_err = tesseract_common::calcRotationalError(new_pose_err.rotation());
+    jac0.col(c).tail(3) = ((new_rot_err - rot_err) / 1e-5);
   }
 
-  return jac0;  // This is available in 3.4 jac0(indices_, Eigen::all);
-}
+  MatrixXd reduced_jac(indices_.size(), n_dof);
+  for (int i = 0; i < indices_.size(); ++i)
+    reduced_jac.row(i) = jac0.row(indices_[i]);
 
-CartPoseErrCalculator::CartPoseErrCalculator(
-    std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-    std::string source_frame,
-    std::string target_frame,
-    const Eigen::Isometry3d& source_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::Isometry3d& target_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXi& indices,                // NOLINT(modernize-pass-by-value)
-    const VectorXd& lower_tolerance,               // NOLINT(modernize-pass-by-value)
-    const VectorXd& upper_tolerance)               // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip))
-  , source_frame_(std::move(source_frame))
-  , target_frame_(std::move(target_frame))
-  , source_frame_offset_(source_frame_offset)
-  , target_frame_offset_(target_frame_offset)
-  , indices_(indices)
-{
-  assert(indices_.size() <= 6);
-  is_target_active_ = manip_->isActiveLinkName(target_frame_);
-
-  if (lower_tolerance.size() != upper_tolerance.size())
-  {
-    std::stringstream error_ss;
-    error_ss << "CartPoseErrCalculator: Mismatched tolerance sizes. lower: " << lower_tolerance.size()
-             << ", upper: " << upper_tolerance.size();
-    throw std::runtime_error(error_ss.str());
-  }
-
-  // Check to see if the waypoint is toleranced and set the error function accordingly
-  if ((lower_tolerance.size() == 0 && upper_tolerance.size() == 0) ||
-      tesseract_common::almostEqualRelativeAndAbs(lower_tolerance, upper_tolerance))
-  {
-    if (is_target_active_)
-    {
-      error_function_ = [this](const Eigen::Isometry3d& target_tf,
-                               const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-        return tesseract_common::calcTransformError(source_tf, target_tf);
-      };
-    }
-    else
-    {
-      error_function_ = [this](const Eigen::Isometry3d& target_tf,
-                               const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-        return tesseract_common::calcTransformError(target_tf, source_tf);
-      };
-    }
-  }
-  else
-  {
-    if (is_target_active_)
-    {
-      error_function_ = [lower_tolerance, upper_tolerance](const Eigen::Isometry3d& target_tf,
-                                                           const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-        // Calculate the error using tesseract_common::calcTransformError or equivalent
-        const VectorXd err = tesseract_common::calcTransformError(source_tf, target_tf);
-
-        // Apply tolerances
-        return applyTolerances(err, lower_tolerance, upper_tolerance);
-      };
-    }
-    else
-    {
-      error_function_ = [lower_tolerance, upper_tolerance](const Eigen::Isometry3d& target_tf,
-                                                           const Eigen::Isometry3d& source_tf) -> Eigen::VectorXd {
-        // Calculate the error using tesseract_common::calcTransformError or equivalent
-        const VectorXd err = tesseract_common::calcTransformError(target_tf, source_tf);
-
-        // Apply tolerances
-        return applyTolerances(err, lower_tolerance, upper_tolerance);
-      };
-    }
-  }
+  return reduced_jac;  // This is available in 3.4 jac0(indices_, Eigen::all);
 }
 
 VectorXd CartPoseErrCalculator::operator()(const VectorXd& dof_vals) const
 {
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
-  const Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
-  const Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
+  Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
+  Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
 
-  VectorXd err = error_function_(target_tf, source_tf);
+  VectorXd err;
+  if (is_target_active_)
+    err = tesseract_common::calcTransformError(source_tf, target_tf);
+  else
+    err = tesseract_common::calcTransformError(target_tf, source_tf);
 
   VectorXd reduced_err(indices_.size());
   for (int i = 0; i < indices_.size(); ++i)
@@ -289,8 +135,7 @@ VectorXd CartPoseErrCalculator::operator()(const VectorXd& dof_vals) const
   return reduced_err;  // This is available in 3.4 err(indices_, Eigen::all);
 }
 
-void CartPoseErrCalculator::Plot(const std::shared_ptr<tesseract_visualization::Visualization>& plotter,
-                                 const VectorXd& dof_vals)
+void CartPoseErrCalculator::Plot(const tesseract_visualization::Visualization::Ptr& plotter, const VectorXd& dof_vals)
 {
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
   Eigen::Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
@@ -310,83 +155,57 @@ void CartPoseErrCalculator::Plot(const std::shared_ptr<tesseract_visualization::
   plotter->plotMarker(m3);
 }
 
-CartPoseJacCalculator::CartPoseJacCalculator(
-    std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-    std::string source_frame,
-    std::string target_frame,
-    const Eigen::Isometry3d& source_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::Isometry3d& target_frame_offset,  // NOLINT(modernize-pass-by-value)
-    const Eigen::VectorXi& indices)                // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip))
-  , source_frame_(std::move(source_frame))
-  , source_frame_offset_(source_frame_offset)
-  , target_frame_(std::move(target_frame))
-  , target_frame_offset_(target_frame_offset)
-  , is_target_active_(manip_->isActiveLinkName(target_frame_))
-  , indices_(indices)
-  , epsilon_(DEFAULT_EPSILON)
-{
-  assert(indices_.size() <= 6);
-
-  if (is_target_active_)
-  {
-    error_diff_function_ = [this](const VectorXd& vals,
-                                  const Eigen::Isometry3d& target_tf,
-                                  const Eigen::Isometry3d& source_tf) -> VectorXd {
-      tesseract_common::TransformMap perturbed_state = manip_->calcFwdKin(vals);
-      const Isometry3d perturbed_target_tf = perturbed_state[target_frame_] * target_frame_offset_;
-      VectorXd error_diff = tesseract_common::calcJacobianTransformErrorDiff(source_tf, target_tf, perturbed_target_tf);
-
-      VectorXd reduced_error_diff(indices_.size());
-      for (int i = 0; i < indices_.size(); ++i)
-        reduced_error_diff[i] = error_diff[indices_[i]];
-
-      return reduced_error_diff;
-    };
-  }
-  else
-  {
-    error_diff_function_ = [this](const VectorXd& vals,
-                                  const Eigen::Isometry3d& target_tf,
-                                  const Eigen::Isometry3d& source_tf) -> VectorXd {
-      tesseract_common::TransformMap perturbed_state = manip_->calcFwdKin(vals);
-      const Isometry3d perturbed_source_tf = perturbed_state[source_frame_] * source_frame_offset_;
-      VectorXd error_diff = tesseract_common::calcJacobianTransformErrorDiff(target_tf, source_tf, perturbed_source_tf);
-
-      VectorXd reduced_error_diff(indices_.size());
-      for (int i = 0; i < indices_.size(); ++i)
-        reduced_error_diff[i] = error_diff[indices_[i]];
-
-      return reduced_error_diff;
-    };
-  }
-}
-
 MatrixXd CartPoseJacCalculator::operator()(const VectorXd& dof_vals) const
 {
   tesseract_common::TransformMap state = manip_->calcFwdKin(dof_vals);
-  const Isometry3d source_tf = state[source_frame_] * source_frame_offset_;
-  const Isometry3d target_tf = state[target_frame_] * target_frame_offset_;
+  Eigen::Isometry3d pose_inv{ Eigen::Isometry3d::Identity() };
+  Eigen::Isometry3d tf0{ Eigen::Isometry3d::Identity() };
+  Eigen::MatrixXd jac0;
 
-  Eigen::MatrixXd jac0(indices_.size(), dof_vals.size());
-  Eigen::VectorXd dof_vals_pert = dof_vals;
-  for (int i = 0; i < dof_vals.size(); ++i)
+  if (is_target_active_)
   {
-    dof_vals_pert(i) = dof_vals(i) + epsilon_;
-    const VectorXd error_diff = error_diff_function_(dof_vals_pert, target_tf, source_tf);
-    jac0.col(i) = error_diff / epsilon_;
-    dof_vals_pert(i) = dof_vals(i);
+    pose_inv = (state[source_frame_] * source_frame_offset_).inverse();
+    tf0 = state[target_frame_] * target_frame_offset_;
+    jac0 = manip_->calcJacobian(dof_vals, manip_->getBaseLinkName(), target_frame_, target_frame_offset_.translation());
+    tesseract_common::jacobianChangeBase(jac0, pose_inv);
+  }
+  else
+  {
+    pose_inv = (state[target_frame_] * target_frame_offset_).inverse();
+    tf0 = state[source_frame_] * source_frame_offset_;
+    jac0 = manip_->calcJacobian(dof_vals, manip_->getBaseLinkName(), source_frame_, source_frame_offset_.translation());
+    tesseract_common::jacobianChangeBase(jac0, pose_inv);
   }
 
-  return jac0;  // This is available in 3.4 jac0(indices_, Eigen::all);
-}
+  // Paper:
+  // https://ethz.ch/content/dam/ethz/special-interest/mavt/robotics-n-intelligent-systems/rsl-dam/documents/RobotDynamics2016/RD2016script.pdf
+  // The jacobian of the robot is the geometric jacobian (Je) which maps generalized velocities in
+  // joint space to time derivatives of the end-effector configuration representation. It does not
+  // represent the analytic jacobian (Ja) given by a partial differentiation of position and rotation
+  // to generalized coordinates. Since the geometric jacobian is unique there exists a linear mapping
+  // between velocities and the derivatives of the representation.
+  //
+  // The approach in the paper was tried but it was having issues with getting correct jacobian.
+  // Must of had an error in the implementation so should revisit at another time but the approach
+  // below should be sufficient and faster than numerical calculations using the err function.
 
-CartVelJacCalculator::CartVelJacCalculator(std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-                                           std::string link,
-                                           double limit,
-                                           const Eigen::Isometry3d& tcp)  // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip)), limit_(limit), link_(std::move(link)), tcp_(tcp)
-{
+  // The approach below leverages the geometric jacobian and a small step in time to approximate
+  // the partial derivative of the error function. Note that the rotational portion is the only part
+  // that is required to be modified per the paper.
+  Isometry3d pose_err = pose_inv * tf0;
+  Eigen::Vector3d rot_err = tesseract_common::calcRotationalError(pose_err.rotation());
+  for (int c = 0; c < jac0.cols(); ++c)
+  {
+    auto new_pose_err = trajopt_common::addTwist(pose_err, jac0.col(c), 1e-5);
+    Eigen::VectorXd new_rot_err = tesseract_common::calcRotationalError(new_pose_err.rotation());
+    jac0.col(c).tail(3) = ((new_rot_err - rot_err) / 1e-5);
+  }
+
+  MatrixXd reduced_jac(indices_.size(), manip_->numJoints());
+  for (int i = 0; i < indices_.size(); ++i)
+    reduced_jac.row(i) = jac0.row(indices_[i]);
+
+  return reduced_jac;  // This is available in 3.4 jac0(indices_, Eigen::all);
 }
 
 MatrixXd CartVelJacCalculator::operator()(const VectorXd& dof_vals) const
@@ -416,14 +235,6 @@ MatrixXd CartVelJacCalculator::operator()(const VectorXd& dof_vals) const
   return out;
 }
 
-CartVelErrCalculator::CartVelErrCalculator(std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
-                                           std::string link,
-                                           double limit,
-                                           const Eigen::Isometry3d& tcp)  // NOLINT(modernize-pass-by-value)
-  : manip_(std::move(manip)), link_(std::move(link)), limit_(limit), tcp_(tcp)
-{
-}
-
 VectorXd CartVelErrCalculator::operator()(const VectorXd& dof_vals) const
 {
   auto n_dof = static_cast<int>(manip_->numJoints());
@@ -444,7 +255,7 @@ Eigen::VectorXd JointVelErrCalculator::operator()(const VectorXd& var_vals) cons
   assert(var_vals.rows() % 2 == 0);
   // Top half of the vector are the joint values. The bottom half are the 1/dt values
   auto half = static_cast<int>(var_vals.rows() / 2);
-  const int num_vels = half - 1;
+  int num_vels = half - 1;
   // (x1-x0)*(1/dt)
   VectorXd vel = (var_vals.segment(1, num_vels) - var_vals.segment(0, num_vels)).array() *
                  var_vals.segment(half + 1, num_vels).array();
@@ -459,16 +270,16 @@ Eigen::VectorXd JointVelErrCalculator::operator()(const VectorXd& var_vals) cons
 MatrixXd JointVelJacCalculator::operator()(const VectorXd& var_vals) const
 {
   // var_vals = (theta_t1, theta_t2, theta_t3 ... 1/dt_1, 1/dt_2, 1/dt_3 ...)
-  auto num_vals = var_vals.rows();
-  auto half = num_vals / 2;
-  auto num_vels = half - 1;
+  auto num_vals = static_cast<int>(var_vals.rows());
+  int half = num_vals / 2;
+  int num_vels = half - 1;
   MatrixXd jac = MatrixXd::Zero(num_vels * 2, num_vals);
 
-  for (auto i = 0; i < num_vels; i++)
+  for (int i = 0; i < num_vels; i++)
   {
     // v = (j_i+1 - j_i)*(1/dt)
     // We calculate v with the dt from the second pt
-    auto time_index = i + half + 1;
+    int time_index = i + half + 1;
     // dv_i/dj_i = -(1/dt)
     jac(i, i) = -1.0 * var_vals(time_index);
     // dv_i/dj_i+1 = (1/dt)
@@ -489,7 +300,7 @@ VectorXd JointAccErrCalculator::operator()(const VectorXd& var_vals) const
 {
   assert(var_vals.rows() % 2 == 0);
   auto half = static_cast<int>(var_vals.rows() / 2);
-  const int num_acc = half - 2;
+  int num_acc = half - 2;
   VectorXd vels = vel_calc(var_vals);
 
   // v1-v0
@@ -505,18 +316,18 @@ VectorXd JointAccErrCalculator::operator()(const VectorXd& var_vals) const
 MatrixXd JointAccJacCalculator::operator()(const VectorXd& var_vals) const
 {
   auto num_vals = static_cast<int>(var_vals.rows());
-  const int half = num_vals / 2;
+  int half = num_vals / 2;
   MatrixXd jac = MatrixXd::Zero(half - 2, num_vals);
 
   VectorXd vels = vel_calc(var_vals);
   MatrixXd vel_jac = vel_jac_calc(var_vals);
   for (int i = 0; i < jac.rows(); i++)
   {
-    const int dt_1_index = i + half + 1;
-    const int dt_2_index = dt_1_index + 1;
-    const double dt_1 = var_vals(dt_1_index);
-    const double dt_2 = var_vals(dt_2_index);
-    const double total_dt = dt_1 + dt_2;
+    int dt_1_index = i + half + 1;
+    int dt_2_index = dt_1_index + 1;
+    double dt_1 = var_vals(dt_1_index);
+    double dt_2 = var_vals(dt_2_index);
+    double total_dt = dt_1 + dt_2;
 
     jac(i, i) = 2.0 * (vel_jac(i + 1, i) - vel_jac(i, i)) / total_dt;
     jac(i, i + 1) = 2.0 * (vel_jac(i + 1, i + 1) - vel_jac(i, i + 1)) / total_dt;
@@ -536,7 +347,7 @@ VectorXd JointJerkErrCalculator::operator()(const VectorXd& var_vals) const
 {
   assert(var_vals.rows() % 2 == 0);
   auto half = static_cast<int>(var_vals.rows() / 2);
-  const int num_jerk = half - 3;
+  int num_jerk = half - 3;
   VectorXd acc = acc_calc(var_vals);
 
   VectorXd acc_diff = acc.segment(1, num_jerk) - acc.segment(0, num_jerk);
@@ -552,7 +363,7 @@ VectorXd JointJerkErrCalculator::operator()(const VectorXd& var_vals) const
 MatrixXd JointJerkJacCalculator::operator()(const VectorXd& var_vals) const
 {
   auto num_vals = static_cast<int>(var_vals.rows());
-  const int half = num_vals / 2;
+  int half = num_vals / 2;
   MatrixXd jac = MatrixXd::Zero(half - 3, num_vals);
 
   VectorXd acc = acc_calc(var_vals);
@@ -560,13 +371,13 @@ MatrixXd JointJerkJacCalculator::operator()(const VectorXd& var_vals) const
 
   for (int i = 0; i < jac.rows(); i++)
   {
-    const int dt_1_index = i + half + 1;
-    const int dt_2_index = dt_1_index + 1;
-    const int dt_3_index = dt_2_index + 1;
-    const double dt_1 = var_vals(dt_1_index);
-    const double dt_2 = var_vals(dt_2_index);
-    const double dt_3 = var_vals(dt_3_index);
-    const double total_dt = dt_1 + dt_2 + dt_3;
+    int dt_1_index = i + half + 1;
+    int dt_2_index = dt_1_index + 1;
+    int dt_3_index = dt_2_index + 1;
+    double dt_1 = var_vals(dt_1_index);
+    double dt_2 = var_vals(dt_2_index);
+    double dt_3 = var_vals(dt_3_index);
+    double total_dt = dt_1 + dt_2 + dt_3;
 
     jac(i, i) = 3.0 * (acc_jac(i + 1, i) - acc_jac(i, i)) / total_dt;
     jac(i, i + 1) = 3.0 * (acc_jac(i + 1, i + 1) - acc_jac(i, i + 1)) / total_dt;
@@ -601,12 +412,12 @@ MatrixXd TimeCostJacCalculator::operator()(const VectorXd& var_vals) const
 VectorXd AvoidSingularityErrCalculator::operator()(const VectorXd& var_vals) const
 {
   // Calculate the SVD of the jacobian at this joint state
-  const MatrixXd jacobian = fwd_kin_->calcJacobian(var_vals, link_name_);
-  const Eigen::JacobiSVD<MatrixXd> svd(jacobian, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  MatrixXd jacobian = fwd_kin_->calcJacobian(var_vals, link_name_);
+  Eigen::JacobiSVD<MatrixXd> svd(jacobian, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
   // Get the U and V vectors for the smallest singular value
-  const double smallest_sv = svd.singularValues().tail(1)(0);
-  const double cost = 1.0 / (smallest_sv + lambda_);
+  double smallest_sv = svd.singularValues().tail(1)(0);
+  double cost = 1.0 / (smallest_sv + lambda_);
 
   const static double smallest_allowable_sv = 0.1;
   const double threshold = 1.0 / (smallest_allowable_sv + lambda_);
@@ -623,10 +434,10 @@ MatrixXd AvoidSingularityJacCalculator::jacobianPartialDerivative(const VectorXd
 {
   // Calculate the jacobian for the given joint perturbed by some epsilon
   Eigen::VectorXd joints(state);
-  const double eps = eps_;
+  double eps = eps_;
   joints(jntIdx) += eps;
 
-  const MatrixXd jacobian_increment = fwd_kin_->calcJacobian(joints, link_name_);
+  MatrixXd jacobian_increment = fwd_kin_->calcJacobian(joints, link_name_);
   return (jacobian_increment - jacobian) / eps;
 }
 
@@ -636,13 +447,13 @@ MatrixXd AvoidSingularityJacCalculator::operator()(const VectorXd& var_vals) con
   cost_jacobian.resize(1, var_vals.size());
 
   // Calculate the SVD of the jacobian at this joint state
-  const MatrixXd jacobian = fwd_kin_->calcJacobian(var_vals, link_name_);
-  const Eigen::JacobiSVD<MatrixXd> svd(jacobian, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  MatrixXd jacobian = fwd_kin_->calcJacobian(var_vals, link_name_);
+  Eigen::JacobiSVD<MatrixXd> svd(jacobian, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
   // Get the U and V vectors for the smallest singular value
-  const double smallest_sv = svd.singularValues().tail(1)(0);
+  double smallest_sv = svd.singularValues().tail(1)(0);
   VectorXd ui = svd.matrixU().rightCols(1);
-  const VectorXd vi = svd.matrixV().rightCols(1);
+  VectorXd vi = svd.matrixV().rightCols(1);
 
   // Calculate the jacobian partial derivative for each joint, perturbing it slightly
   for (Eigen::Index jntIdx = 0; jntIdx < var_vals.size(); ++jntIdx)

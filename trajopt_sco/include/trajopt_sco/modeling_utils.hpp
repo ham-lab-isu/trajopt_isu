@@ -12,7 +12,7 @@ using numerical derivatives or user-defined analytic derivatives.
 
 namespace sco
 {
-enum PenaltyType : std::uint8_t
+enum PenaltyType
 {
   SQUARED,
   ABS,

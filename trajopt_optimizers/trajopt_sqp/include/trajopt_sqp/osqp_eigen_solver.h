@@ -26,12 +26,9 @@
 #ifndef TRAJOPT_SQP_INCLUDE_OSQP_EIGEN_SOLVER_H_
 #define TRAJOPT_SQP_INCLUDE_OSQP_EIGEN_SOLVER_H_
 
+#include <ifopt/problem.h>
 #include <trajopt_sqp/qp_solver.h>
-
-namespace OsqpEigen
-{
-class Solver;
-}  // namespace OsqpEigen
+#include <OsqpEigen/OsqpEigen.h>
 
 namespace trajopt_sqp
 {
@@ -45,11 +42,6 @@ public:
   using ConstPtr = std::shared_ptr<const OSQPEigenSolver>;
 
   OSQPEigenSolver();
-  ~OSQPEigenSolver() override;
-  OSQPEigenSolver(const OSQPEigenSolver&) = delete;
-  OSQPEigenSolver& operator=(const OSQPEigenSolver&) = delete;
-  OSQPEigenSolver(OSQPEigenSolver&&) = default;
-  OSQPEigenSolver& operator=(OSQPEigenSolver&&) = default;
 
   bool init(Eigen::Index num_vars, Eigen::Index num_cnts) override;
 
@@ -72,9 +64,9 @@ public:
 
   bool updateLinearConstraintsMatrix(const SparseMatrix& linearConstraintsMatrix) override;
 
-  QPSolverStatus getSolverStatus() const override { return solver_status_; }
+  QPSolverStatus getSolverStatus() const override { return solver_status_; };
 
-  std::unique_ptr<OsqpEigen::Solver> solver_;
+  OsqpEigen::Solver solver_;
 
 private:
   // Depending on what they decide to do with this issue, these could be dropped

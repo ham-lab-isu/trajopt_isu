@@ -24,16 +24,16 @@
  * limitations under the License.
  */
 #include <trajopt_sqp/callbacks/wait_for_input.h>
-#include <tesseract_visualization/visualization.h>
+#include <trajopt_ifopt/utils/trajopt_utils.h>
 
 using namespace trajopt_sqp;
 
-WaitForInputCallback::WaitForInputCallback(std::shared_ptr<tesseract_visualization::Visualization> plotter)
+WaitForInputCallback::WaitForInputCallback(tesseract_visualization::Visualization::Ptr plotter)
   : plotter_(std::move(plotter))
 {
 }
 
-bool WaitForInputCallback::execute(const QPProblem& /*problem*/, const SQPResults&)
+bool WaitForInputCallback::execute(const QPProblem& /*problem*/, const trajopt_sqp::SQPResults&)
 {
   plotter_->waitForInput();
   return true;

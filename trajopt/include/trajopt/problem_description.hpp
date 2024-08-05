@@ -1,22 +1,18 @@
 #pragma once
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
-#include <type_traits>
+#include <unordered_map>
 TRAJOPT_IGNORE_WARNINGS_POP
 
-#include <tesseract_environment/fwd.h>
-#include <tesseract_kinematics/core/fwd.h>
-#include <tesseract_visualization/fwd.h>
-#include <tesseract_collision/core/types.h>
-
-#include <trajopt/typedefs.hpp>
+#include <tesseract_environment/environment.h>
+#include <trajopt/common.hpp>
+#include <trajopt_sco/optimizers.hpp>
 #include <trajopt_common/utils.hpp>
 
-#include <trajopt_sco/optimizers.hpp>
 namespace sco
 {
 struct OptResults;
-}  // namespace sco
+}
 
 namespace trajopt
 {
@@ -25,37 +21,12 @@ using TrajOptResponse = Json::Value;
 
 struct ProblemConstructionInfo;
 
-enum class TermType : char
+enum TermType
 {
-  TT_INVALID = 0,     // 0000 0000
   TT_COST = 0x1,      // 0000 0001
   TT_CNT = 0x2,       // 0000 0010
   TT_USE_TIME = 0x4,  // 0000 0100
 };
-
-inline TermType operator|(TermType lhs, TermType rhs)
-{
-  using T = std::underlying_type_t<TermType>;
-  return TermType(static_cast<T>(lhs) | static_cast<T>(rhs));
-}
-
-inline TermType operator&(TermType lhs, TermType rhs)
-{
-  using T = std::underlying_type_t<TermType>;
-  return TermType(static_cast<T>(lhs) & static_cast<T>(rhs));
-}
-
-inline TermType operator^(TermType lhs, TermType rhs)
-{
-  using T = std::underlying_type_t<TermType>;
-  return TermType(static_cast<T>(lhs) ^ static_cast<T>(rhs));
-}
-
-inline TermType operator~(TermType rhs)
-{
-  using T = std::underlying_type_t<TermType>;
-  return TermType(~static_cast<T>(rhs));
-}
 
 #define DEFINE_CREATE(classname)                                                                                       \
   static TermInfo::Ptr create() { return std::make_shared<classname>(); }
@@ -86,8 +57,8 @@ public:
   /** @brief Returns the problem DOF. This is the number of columns in the optimization matrix.
    * Note that this is not necessarily the same as the kinematic DOF.*/
   int GetNumDOF() { return m_traj_vars.cols(); }
-  std::shared_ptr<const tesseract_kinematics::JointGroup> GetKin() { return m_kin; }
-  std::shared_ptr<const tesseract_environment::Environment> GetEnv() { return m_env; }
+  tesseract_kinematics::JointGroup::ConstPtr GetKin() { return m_kin; }
+  tesseract_environment::Environment::ConstPtr GetEnv() { return m_env; }
   void SetInitTraj(const TrajArray& x) { m_init_traj = x; }
   TrajArray GetInitTraj() { return m_init_traj; }
   friend TrajOptProb::Ptr ConstructProblem(const ProblemConstructionInfo&);
@@ -98,10 +69,10 @@ public:
 
 private:
   /** @brief If true, the last column in the optimization matrix will be 1/dt */
-  bool has_time{ false };
+  bool has_time;
   VarArray m_traj_vars;
-  std::shared_ptr<const tesseract_kinematics::JointGroup> m_kin;
-  std::shared_ptr<const tesseract_environment::Environment> m_env;
+  tesseract_kinematics::JointGroup::ConstPtr m_kin;
+  tesseract_environment::Environment::ConstPtr m_env;
   TrajArray m_init_traj;
 };
 
@@ -169,7 +140,7 @@ struct InitInfo
 
     In all cases the dt column (if present) is appended the selected method is defined.
  */
-  enum Type : std::uint8_t
+  enum Type
   {
     STATIONARY,
     JOINT_INTERPOLATED,
@@ -200,8 +171,8 @@ struct TermInfo
   using Ptr = std::shared_ptr<TermInfo>;
 
   std::string name;
-  TermType term_type{ TermType::TT_INVALID };
-  TermType getSupportedTypes() const { return supported_term_types_; }
+  int term_type{ -1 };
+  int getSupportedTypes() const { return supported_term_types_; }
   virtual void fromJson(ProblemConstructionInfo& pci, const Json::Value& v) = 0;
   virtual void hatch(TrajOptProb& prob) = 0;
 
@@ -221,11 +192,11 @@ struct TermInfo
   TermInfo& operator=(TermInfo&&) = default;
 
 protected:
-  TermInfo(TermType supported_term_types) : supported_term_types_(supported_term_types) {}
+  TermInfo(int supported_term_types) : supported_term_types_(supported_term_types) {}
 
 private:
   static std::map<std::string, MakerFunc> name2maker;  // NOLINT
-  TermType supported_term_types_;
+  int supported_term_types_;
 };
 
 /**
@@ -240,12 +211,12 @@ public:
   std::vector<TermInfo::Ptr> cnt_infos;
   InitInfo init_info;
 
-  std::shared_ptr<const tesseract_environment::Environment> env;
-  std::shared_ptr<const tesseract_kinematics::JointGroup> kin;
+  tesseract_environment::Environment::ConstPtr env;
+  tesseract_kinematics::JointGroup::ConstPtr kin;
 
   std::vector<sco::Optimizer::Callback> callbacks;
 
-  ProblemConstructionInfo(std::shared_ptr<const tesseract_environment::Environment> env) : env(std::move(env)) {}
+  ProblemConstructionInfo(tesseract_environment::Environment::ConstPtr env) : env(std::move(env)) {}
 
   void fromJson(const Json::Value& v);
 
@@ -304,7 +275,7 @@ struct UserDefinedTermInfo : public TermInfo
   DEFINE_CREATE(UserDefinedTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  UserDefinedTermInfo() : TermInfo{ TermType::TT_COST | TermType::TT_CNT } {}
+  UserDefinedTermInfo() : TermInfo(TT_COST | TT_CNT) {}
 };
 
 /** @brief This is used when the goal frame is not fixed in space */
@@ -313,7 +284,7 @@ struct DynamicCartPoseTermInfo : public TermInfo
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /** @brief Timestep at which to apply term */
-  int timestep{ 0 };
+  int timestep;
   /** @brief Coefficients for position and rotation */
   Eigen::Vector3d pos_coeffs, rot_coeffs;
   /** @brief Link which should reach desired pos */
@@ -324,16 +295,6 @@ struct DynamicCartPoseTermInfo : public TermInfo
   Eigen::Isometry3d source_frame_offset;
   /** @brief A Static transform to be applied to target_ location */
   Eigen::Isometry3d target_frame_offset;
-  /** @brief Distance below waypoint that is allowed. Should be size = 6. First 3 elements are dx, dy, dz. The last 3
-   * elements are angle axis error allowed (Eigen::AngleAxisd.axis() * Eigen::AngleAxisd.angle()) */
-  Eigen::VectorXd lower_tolerance;
-  /** @brief Distance above waypoint that is allowed. Should be size = 6. First 3 elements are dx, dy, dz. The last 3
-   * elements are angle axis error allowed (Eigen::AngleAxisd.axis() * Eigen::AngleAxisd.angle())*/
-  Eigen::VectorXd upper_tolerance;
-
-  /** @brief Error function for calculating the error in the position given the source and target positions
-   * this defaults to tesseract_common::calcTransformError if unset*/
-  std::function<Eigen::VectorXd(const Eigen::Isometry3d&, const Eigen::Isometry3d&)> error_function = nullptr;
 
   DynamicCartPoseTermInfo();
 
@@ -346,14 +307,14 @@ struct DynamicCartPoseTermInfo : public TermInfo
 
 /** @brief This term is used when the goal frame is fixed in cartesian space
 
-  Set term_type == TermType::TT_COST or TermType::TT_CNT for cost or constraint.
+  Set term_type == TT_COST or TT_CNT for cost or constraint.
 */
 struct CartPoseTermInfo : public TermInfo
 {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
   /** @brief Timestep at which to apply term */
-  int timestep{ 0 };
+  int timestep;
   Eigen::Vector3d pos_coeffs, rot_coeffs;
 
   /** @brief Link which should reach desired pos */
@@ -364,16 +325,6 @@ struct CartPoseTermInfo : public TermInfo
   Eigen::Isometry3d source_frame_offset;
   /** @brief A Static transform to be applied to target_ location */
   Eigen::Isometry3d target_frame_offset;
-  /** @brief Distance below waypoint that is allowed. Should be size = 6. First 3 elements are dx, dy, dz. The last 3
-   * elements are angle axis error allowed (Eigen::AngleAxisd.axis() * Eigen::AngleAxisd.angle()) */
-  Eigen::VectorXd lower_tolerance;
-  /** @brief Distance above waypoint that is allowed. Should be size = 6. First 3 elements are dx, dy, dz. The last 3
-   * elements are angle axis error allowed (Eigen::AngleAxisd.axis() * Eigen::AngleAxisd.angle())*/
-  Eigen::VectorXd upper_tolerance;
-
-  /** @brief Error function for calculating the error in the position given the source and target positions
-   * this defaults to tesseract_common::calcTransformError if unset*/
-  std::function<Eigen::VectorXd(const Eigen::Isometry3d&, const Eigen::Isometry3d&)> error_function = nullptr;
 
   CartPoseTermInfo();
 
@@ -404,7 +355,7 @@ struct CartVelTermInfo : public TermInfo
   DEFINE_CREATE(CartVelTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  CartVelTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT) {}
+  CartVelTermInfo() : TermInfo(TT_COST | TT_CNT) {}
 };
 
 /**
@@ -438,7 +389,7 @@ struct JointPosTermInfo : public TermInfo
   DEFINE_CREATE(JointPosTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  JointPosTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT | TermType::TT_USE_TIME) {}
+  JointPosTermInfo() : TermInfo(TT_COST | TT_CNT | TT_USE_TIME) {}
 };
 
 /**
@@ -447,12 +398,12 @@ struct JointPosTermInfo : public TermInfo
 Term is applied to every step between first_step and last_step. It applies two limits, upper_limits/lower_limits,
 to the joint velocity subject to the following cases.
 
-* term_type = TermType::TT_COST
+* term_type = TT_COST
 ** upper_limit = lower_limit = 0 - Cost is applied with a SQUARED error scaled for each joint by coeffs
 ** upper_limit != lower_limit - 2 hinge costs are applied scaled for each joint by coeffs. If velocity < upper_limit and
 velocity > lower_limit, no penalty.
 
-* term_type = TermType::TT_CNT
+* term_type = TT_CNT
 ** upper_limit = lower_limit = 0 - Equality constraint is applied
 ** upper_limit != lower_limit - 2 Inequality constraints are applied. These are both satisfied when velocity <
 upper_limit and velocity > lower_limit
@@ -488,7 +439,7 @@ struct JointVelTermInfo : public TermInfo
   DEFINE_CREATE(JointVelTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  JointVelTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT | TermType::TT_USE_TIME) {}
+  JointVelTermInfo() : TermInfo(TT_COST | TT_CNT | TT_USE_TIME) {}
 };
 
 /**
@@ -497,12 +448,12 @@ struct JointVelTermInfo : public TermInfo
 Term is applied to every step between first_step and last_step. It applies two limits, upper_limits/lower_limits,
 to the joint velocity subject to the following cases.
 
-* term_type = TermType::TT_COST
+* term_type = TT_COST
 ** upper_limit = lower_limit = 0 - Cost is applied with a SQUARED error scaled for each joint by coeffs
 ** upper_limit != lower_limit - 2 hinge costs are applied scaled for each joint by coeffs. If acceleration < upper_limit
 and acceleration > lower_limit, no penalty.
 
-* term_type = TermType::TT_CNT
+* term_type = TT_CNT
 ** upper_limit = lower_limit = 0 - Equality constraint is applied
 ** upper_limit != lower_limit - 2 Inequality constraints are applied. These are both satisfied when acceleration <
 upper_limit and acceleration > lower_limit
@@ -533,7 +484,7 @@ struct JointAccTermInfo : public TermInfo
   DEFINE_CREATE(JointAccTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  JointAccTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT) {}
+  JointAccTermInfo() : TermInfo(TT_COST | TT_CNT) {}
 };
 
 /**
@@ -542,12 +493,12 @@ struct JointAccTermInfo : public TermInfo
 Term is applied to every step between first_step and last_step. It applies two limits, upper_limits/lower_limits,
 to the joint velocity subject to the following cases.
 
-* term_type = TermType::TT_COST
+* term_type = TT_COST
 ** upper_limit = lower_limit = 0 - Cost is applied with a SQUARED error scaled for each joint by coeffs
 ** upper_limit != lower_limit - 2 hinge costs are applied scaled for each joint by coeffs. If jerk < upper_limit and
 jerk > lower_limit, no penalty.
 
-* term_type = TermType::TT_CNT
+* term_type = TT_CNT
 ** upper_limit = lower_limit = 0 - Equality constraint is applied
 ** upper_limit != lower_limit - 2 Inequality constraints are applied. These are both satisfied when jerk <
 upper_limit and jerk > lower_limit
@@ -578,10 +529,10 @@ struct JointJerkTermInfo : public TermInfo
   DEFINE_CREATE(JointJerkTermInfo)
 
   /** @brief Initialize term with it's supported types */
-  JointJerkTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT) {}
+  JointJerkTermInfo() : TermInfo(TT_COST | TT_CNT) {}
 };
 
-enum class CollisionEvaluatorType : std::uint8_t
+enum class CollisionEvaluatorType
 {
   SINGLE_TIMESTEP = 0,
   DISCRETE_CONTINUOUS = 1,
@@ -644,7 +595,7 @@ struct CollisionTermInfo : public TermInfo
   void hatch(TrajOptProb& prob) override;
   DEFINE_CREATE(CollisionTermInfo)
 
-  CollisionTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT) {}
+  CollisionTermInfo() : TermInfo(TT_COST | TT_CNT) {}
 };
 
 /**
@@ -661,8 +612,13 @@ struct TotalTimeTermInfo : public TermInfo
   void fromJson(ProblemConstructionInfo& pci, const Json::Value& v) override;
   DEFINE_CREATE(TotalTimeTermInfo)
 
-  TotalTimeTermInfo() : TermInfo(TermType::TT_COST | TermType::TT_CNT | TermType::TT_USE_TIME) {}
+  TotalTimeTermInfo() : TermInfo(TT_COST | TT_CNT | TT_USE_TIME) {}
 };
+
+TrajOptProb::Ptr ConstructProblem(const ProblemConstructionInfo&);
+TrajOptProb::Ptr ConstructProblem(const Json::Value&, const tesseract_environment::Environment::ConstPtr& env);
+TrajOptResult::Ptr OptimizeProblem(const TrajOptProb::Ptr&,
+                                   const tesseract_visualization::Visualization::Ptr& plotter = nullptr);
 
 /**
  * @brief Applies a cost to avoid kinematic singularities
@@ -670,7 +626,7 @@ struct TotalTimeTermInfo : public TermInfo
 struct AvoidSingularityTermInfo : public TermInfo
 {
   /** @brief The forward kinematics solver used to calculate the jacobian for which to do singularity avoidance */
-  std::shared_ptr<const tesseract_kinematics::JointGroup> subset_kin_;
+  tesseract_kinematics::JointGroup::ConstPtr subset_kin_;
   /** @brief Damping factor used to prevent numerical instability in the singularity avoidance cost as the smallest
    * singular value approaches zero */
   double lambda{ 0.1 };
@@ -684,17 +640,10 @@ struct AvoidSingularityTermInfo : public TermInfo
   void fromJson(ProblemConstructionInfo& pci, const Json::Value& v) override;
   DEFINE_CREATE(AvoidSingularityTermInfo)
 
-  AvoidSingularityTermInfo(std::shared_ptr<const tesseract_kinematics::JointGroup> subset_kin = nullptr,
-                           double lambda_ = 0.1)
-    : TermInfo(TermType::TT_COST | TermType::TT_CNT), subset_kin_(std::move(subset_kin)), lambda(lambda_)
+  AvoidSingularityTermInfo(tesseract_kinematics::JointGroup::ConstPtr subset_kin = nullptr, double lambda_ = 0.1)
+    : TermInfo(TT_COST | TT_CNT), subset_kin_(std::move(subset_kin)), lambda(lambda_)
   {
   }
 };
-
-TrajOptProb::Ptr ConstructProblem(const ProblemConstructionInfo&);
-TrajOptProb::Ptr ConstructProblem(const Json::Value&,
-                                  const std::shared_ptr<const tesseract_environment::Environment>& env);
-TrajOptResult::Ptr OptimizeProblem(const TrajOptProb::Ptr&,
-                                   const std::shared_ptr<tesseract_visualization::Visualization>& plotter = nullptr);
 
 }  // namespace trajopt

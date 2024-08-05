@@ -2,6 +2,7 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <boost/format.hpp>
 #include <cstdio>
+#include <iostream>
 #include <sstream>
 TRAJOPT_IGNORE_WARNINGS_POP
 
@@ -17,19 +18,19 @@ void ConvexObjective::addAffExpr(const AffExpr& affexpr) { exprInc(quad_, affexp
 void ConvexObjective::addQuadExpr(const QuadExpr& quadexpr) { exprInc(quad_, quadexpr); }
 void ConvexObjective::addHinge(const AffExpr& affexpr, double coeff)
 {
-  Var const hinge = model_->addVar("hinge", 0, static_cast<double>(INFINITY));
+  Var hinge = model_->addVar("hinge", 0, static_cast<double>(INFINITY));
   vars_.push_back(hinge);
   ineqs_.push_back(affexpr);
   exprDec(ineqs_.back(), hinge);
-  AffExpr const hinge_cost = exprMult(AffExpr(hinge), coeff);
+  AffExpr hinge_cost = exprMult(AffExpr(hinge), coeff);
   exprInc(quad_, hinge_cost);
 }
 
 void ConvexObjective::addAbs(const AffExpr& affexpr, double coeff)
 {
   // Add variables that will enforce ABS
-  Var const neg = model_->addVar("neg", 0, static_cast<double>(INFINITY));
-  Var const pos = model_->addVar("pos", 0, static_cast<double>(INFINITY));
+  Var neg = model_->addVar("neg", 0, static_cast<double>(INFINITY));
+  Var pos = model_->addVar("pos", 0, static_cast<double>(INFINITY));
   vars_.push_back(neg);
   vars_.push_back(pos);
   // Coeff will be applied whenever neg/pos are not 0
@@ -74,7 +75,7 @@ void ConvexObjective::addL2Norm(const AffExprVector& ev)
 
 void ConvexObjective::addMax(const AffExprVector& ev)
 {
-  Var const m = model_->addVar("max", static_cast<double>(-INFINITY), static_cast<double>(INFINITY));
+  Var m = model_->addVar("max", static_cast<double>(-INFINITY), static_cast<double>(INFINITY));
   ineqs_.reserve(ineqs_.size() + ev.size());
   for (const auto& i : ev)
   {
@@ -154,12 +155,12 @@ DblVec Constraint::violations(const DblVec& x)
 
   if (type() == EQ)
   {
-    for (std::size_t i = 0; i < val.size(); ++i)
+    for (size_t i = 0; i < val.size(); ++i)
       out[i] = fabs(val[i]);
   }
   else
   {  // type() == INEQ
-    for (std::size_t i = 0; i < val.size(); ++i)
+    for (size_t i = 0; i < val.size(); ++i)
       out[i] = pospart(val[i]);
   }
 
@@ -179,21 +180,20 @@ VarVector OptProb::createVariables(const std::vector<std::string>& names)
 
 VarVector OptProb::createVariables(const std::vector<std::string>& names, const DblVec& lb, const DblVec& ub)
 {
-  const std::size_t n_add = names.size();
-  const std::size_t n_cur = vars_.size();
+  size_t n_add = names.size(), n_cur = vars_.size();
   assert(lb.size() == n_add);
   assert(ub.size() == n_add);
   vars_.reserve(n_cur + n_add);
   lower_bounds_.reserve(n_cur + n_add);
   upper_bounds_.reserve(n_cur + n_add);
-  for (std::size_t i = 0; i < names.size(); ++i)
+  for (size_t i = 0; i < names.size(); ++i)
   {
     vars_.push_back(model_->addVar(names[i], lb[i], ub[i]));
     lower_bounds_.push_back(lb[i]);
     upper_bounds_.push_back(ub[i]);
   }
   model_->update();
-  return VarVector{ vars_.end() - static_cast<long int>(n_add), vars_.end() };
+  return VarVector(vars_.end() - static_cast<long int>(n_add), vars_.end());
 }
 
 void OptProb::setLowerBounds(const DblVec& lb)
@@ -281,7 +281,7 @@ DblVec OptProb::getClosestFeasiblePointQP(const DblVec& x)
   }
   model_->setVarBounds(vars_, lower_bounds_, upper_bounds_);
   model_->setObjective(obj);
-  const CvxOptStatus status = model_->optimize();
+  CvxOptStatus status = model_->optimize();
   if (status != CVX_SOLVED)
   {
     model_->writeToFile("/tmp/fail.lp");

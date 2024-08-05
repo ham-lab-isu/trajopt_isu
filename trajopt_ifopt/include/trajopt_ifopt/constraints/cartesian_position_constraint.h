@@ -31,13 +31,16 @@
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <Eigen/Eigen>
 #include <ifopt/constraint_set.h>
-#include <tesseract_kinematics/core/fwd.h>
+
+#include <tesseract_kinematics/core/joint_group.h>
+#include <tesseract_environment/environment.h>
+#include <tesseract_environment/utils.h>
 TRAJOPT_IGNORE_WARNINGS_POP
+
+#include <trajopt_ifopt/variable_sets/joint_position_variable.h>
 
 namespace trajopt_ifopt
 {
-class JointPosition;
-
 /** @brief Contains Cartesian pose constraint information */
 struct CartPosInfo
 {
@@ -46,15 +49,8 @@ struct CartPosInfo
   using Ptr = std::shared_ptr<CartPosInfo>;
   using ConstPtr = std::shared_ptr<const CartPosInfo>;
 
-  enum class Type : std::uint8_t
-  {
-    TARGET_ACTIVE,
-    SOURCE_ACTIVE,
-    BOTH_ACTIVE
-  };
-
   CartPosInfo() = default;
-  CartPosInfo(std::shared_ptr<const tesseract_kinematics::JointGroup> manip,
+  CartPosInfo(tesseract_kinematics::JointGroup::ConstPtr manip,
               std::string source_frame,
               std::string target_frame,
               const Eigen::Isometry3d& source_frame_offset = Eigen::Isometry3d::Identity(),
@@ -62,7 +58,7 @@ struct CartPosInfo
               const Eigen::VectorXi& indices = Eigen::Matrix<int, 1, 6>(std::vector<int>({ 0, 1, 2, 3, 4, 5 }).data()));
 
   /** @brief The joint group */
-  std::shared_ptr<const tesseract_kinematics::JointGroup> manip;
+  tesseract_kinematics::JointGroup::ConstPtr manip;
 
   /** @brief Link which should reach desired pos */
   std::string source_frame;
@@ -77,7 +73,7 @@ struct CartPosInfo
   Eigen::Isometry3d target_frame_offset;
 
   /** @brief indicates which link is active */
-  Type type{ Type::TARGET_ACTIVE };
+  bool is_target_active{ true };
 
   /**
    * @brief This is a vector of indices to be returned Default: {0, 1, 2, 3, 4, 5}
@@ -95,16 +91,11 @@ public:
 
   using Ptr = std::shared_ptr<CartPosConstraint>;
   using ConstPtr = std::shared_ptr<const CartPosConstraint>;
-  using ErrorFunctionType = std::function<Eigen::VectorXd(const Eigen::Isometry3d&, const Eigen::Isometry3d&)>;
-  using ErrorDiffFunctionType =
-      std::function<Eigen::VectorXd(const Eigen::VectorXd&, const Eigen::Isometry3d&, const Eigen::Isometry3d&)>;
 
-  CartPosConstraint(const CartPosInfo& info,
-                    std::shared_ptr<const JointPosition> position_var,
-                    const std::string& name = "CartPos");
+  CartPosConstraint(CartPosInfo info, JointPosition::ConstPtr position_var, const std::string& name = "CartPos");
 
   CartPosConstraint(CartPosInfo info,
-                    std::shared_ptr<const JointPosition> position_var,
+                    JointPosition::ConstPtr position_var,
                     const Eigen::VectorXd& coeffs,
                     const std::string& name = "CartPos");
 
@@ -188,16 +179,10 @@ private:
    * @brief Pointers to the vars used by this constraint.
    * Do not access them directly. Instead use this->GetVariables()->GetComponent(position_var->GetName())->GetValues()
    */
-  std::shared_ptr<const JointPosition> position_var_;
+  JointPosition::ConstPtr position_var_;
 
   /** @brief The kinematic information used when calculating error */
   CartPosInfo info_;
-
-  /** @brief Error function for calculating the error in the position given the source and target positions */
-  ErrorFunctionType error_function_{ nullptr };
-
-  /** @brief The error function to calculate the error difference used for jacobian calculations */
-  ErrorDiffFunctionType error_diff_function_{ nullptr };
 };
-}  // namespace trajopt_ifopt
+};  // namespace trajopt_ifopt
 #endif

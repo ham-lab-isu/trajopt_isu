@@ -1,5 +1,6 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
+#include <algorithm>
 #include <Eigen/SparseCore>
 #include <sstream>
 TRAJOPT_IGNORE_WARNINGS_POP
@@ -13,11 +14,7 @@ void exprToEigen(const AffExpr& expr, Eigen::SparseVector<double>& sparse_vector
 {
   sparse_vector.resize(n_vars);
   sparse_vector.reserve(static_cast<long int>(expr.size()));
-
-  std::vector<std::pair<int, double>> doublets;
-  doublets.reserve(expr.size());
-
-  for (std::size_t i = 0; i < expr.size(); ++i)
+  for (size_t i = 0; i < expr.size(); ++i)
   {
     auto i_var_index = static_cast<int>(expr.vars[i].var_rep->index);
     if (i_var_index >= n_vars)
@@ -27,22 +24,7 @@ void exprToEigen(const AffExpr& expr, Eigen::SparseVector<double>& sparse_vector
       throw std::runtime_error(msg.str());
     }
     if (expr.coeffs[i] != 0.)
-      doublets.emplace_back(i_var_index, expr.coeffs[i]);
-  }
-
-  std::sort(doublets.begin(), doublets.end(), [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-  int prev_index{ -1 };
-  for (const auto& doublet : doublets)
-  {
-    if (doublet.first == prev_index)
-    {
-      sparse_vector.coeffRef(doublet.first) += doublet.second;
-    }
-    else
-    {
-      sparse_vector.insertBack(doublet.first) = doublet.second;
-    }
-    prev_index = doublet.first;
+      sparse_vector.coeffRef(i_var_index) += expr.coeffs[i];
   }
 }
 
@@ -59,28 +41,25 @@ void exprToEigen(const QuadExpr& expr,
   vars2inds(expr.vars2, ind2);
   assert((ind2.size() == ind1.size()) && (ind1.size() == expr.coeffs.size()));  // NOLINT
   sparse_matrix.resize(n_vars, n_vars);
+  sparse_matrix.reserve(static_cast<long int>(2 * expr.size()));
 
   Eigen::SparseVector<double> vector_sparse;
   exprToEigen(expr.affexpr, vector_sparse, n_vars);
   vector = vector_sparse;
 
-  using T = Eigen::Triplet<double>;
-  thread_local std::vector<T, Eigen::aligned_allocator<T>> triplets;
-  triplets.clear();
-
-  for (std::size_t i = 0; i < expr.coeffs.size(); ++i)
+  for (size_t i = 0; i < expr.coeffs.size(); ++i)
   {
     if (expr.coeffs[i] != 0.0)
     {
       // NOLINTNEXTLINE
       if (ind1[i] == ind2[i])
       {
-        triplets.emplace_back(static_cast<Eigen::Index>(ind1[i]), static_cast<Eigen::Index>(ind2[i]), expr.coeffs[i]);
+        sparse_matrix.coeffRef(static_cast<Eigen::Index>(ind1[i]), static_cast<Eigen::Index>(ind2[i])) +=
+            expr.coeffs[i];
       }
       else
       {
-        Eigen::Index c{ 0 };
-        Eigen::Index r{ 0 };
+        Eigen::Index c{ 0 }, r{ 0 };
         if (ind1[i] < ind2[i])
         {
           r = static_cast<Eigen::Index>(ind1[i]);
@@ -91,22 +70,20 @@ void exprToEigen(const QuadExpr& expr,
           r = static_cast<Eigen::Index>(ind2[i]);
           c = static_cast<Eigen::Index>(ind1[i]);
         }
-        triplets.emplace_back(r, c, expr.coeffs[i]);
+        sparse_matrix.coeffRef(r, c) += expr.coeffs[i];
       }
     }
   }
-
-  if (force_diagonal)
-    for (int k = 0; k < n_vars; ++k)
-      triplets.emplace_back(k, k, 0.0);
-
-  sparse_matrix.setFromTriplets(triplets.begin(), triplets.end());
 
   auto sparse_matrix_T = Eigen::SparseMatrix<double>(sparse_matrix.transpose());
   sparse_matrix = sparse_matrix + sparse_matrix_T;
 
   if (!matrix_is_halved)
     sparse_matrix = 0.5 * sparse_matrix;
+
+  if (force_diagonal)
+    for (int k = 0; k < n_vars; ++k)
+      sparse_matrix.coeffRef(k, k) += 0.0;
 }
 
 void exprToEigen(const AffExprVector& expr_vec,
@@ -124,10 +101,10 @@ void exprToEigen(const AffExprVector& expr_vec,
 
   for (int i = 0; i < static_cast<int>(expr_vec.size()); ++i)
   {
-    const AffExpr& expr = expr_vec[static_cast<std::size_t>(i)];
+    const AffExpr& expr = expr_vec[static_cast<size_t>(i)];
     vector[i] = -expr.constant;
 
-    for (std::size_t j = 0; j < expr.size(); ++j)
+    for (size_t j = 0; j < expr.size(); ++j)
     {
       auto i_var_index = static_cast<int>(expr.vars[j].var_rep->index);
       if (i_var_index >= n_vars)
@@ -171,9 +148,9 @@ void eigenToTriplets(const Eigen::SparseMatrix<double>& sparse_matrix,
                      DblVec& values_ij)
 {
   const auto& sm = sparse_matrix;
-  rows_i.reserve(rows_i.size() + static_cast<std::size_t>(sm.nonZeros()));
-  cols_j.reserve(cols_j.size() + static_cast<std::size_t>(sm.nonZeros()));
-  values_ij.reserve(values_ij.size() + static_cast<std::size_t>(sm.nonZeros()));
+  rows_i.reserve(rows_i.size() + static_cast<size_t>(sm.nonZeros()));
+  cols_j.reserve(cols_j.size() + static_cast<size_t>(sm.nonZeros()));
+  values_ij.reserve(values_ij.size() + static_cast<size_t>(sm.nonZeros()));
   for (int k = 0; k < sm.outerSize(); ++k)
   {
     for (Eigen::SparseMatrix<double>::InnerIterator it(sm, k); it; ++it)

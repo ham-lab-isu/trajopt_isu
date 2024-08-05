@@ -3,8 +3,8 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <cassert>
-#include <cstdint>
 #include <iosfwd>
+#include <limits>
 #include <string>
 #include <vector>
 #include <memory>
@@ -15,7 +15,7 @@ TRAJOPT_IGNORE_WARNINGS_POP
 namespace Json
 {
 class Value;
-}  // namespace Json
+}
 
 /**
 @file solver_interface.hpp
@@ -29,7 +29,7 @@ backends.
 
 namespace sco
 {
-enum ConstraintType : std::uint8_t
+enum ConstraintType
 {
   EQ,
   INEQ
@@ -37,7 +37,7 @@ enum ConstraintType : std::uint8_t
 
 using ConstraintTypeVector = std::vector<ConstraintType>;
 
-enum CvxOptStatus : std::uint8_t
+enum CvxOptStatus
 {
   CVX_SOLVED,
   CVX_INFEASIBLE,
@@ -141,7 +141,7 @@ struct Var
   double value(const DblVec& x) const
   {
     assert(var_rep->index < x.size());
-    return x[var_rep->index];
+    return x[static_cast<size_t>(var_rep->index)];
   }
 };
 
@@ -196,7 +196,7 @@ struct AffExpr
   explicit AffExpr(double a);
   explicit AffExpr(const Var& v);
 
-  std::size_t size() const;
+  size_t size() const;
   double value(const double* x) const;
   double value(const DblVec& x) const;
 };
@@ -213,7 +213,7 @@ struct QuadExpr
   explicit QuadExpr(double a);
   explicit QuadExpr(const Var& v);
   explicit QuadExpr(AffExpr aff);
-  std::size_t size() const;
+  size_t size() const;
   double value(const double* x) const;
   double value(const DblVec& x) const;
 };
@@ -226,7 +226,7 @@ std::ostream& operator<<(std::ostream&, const QuadExpr&);
 class ModelType
 {
 public:
-  enum Value : std::uint8_t
+  enum Value
   {
     GUROBI,
     OSQP,

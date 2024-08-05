@@ -27,16 +27,14 @@
 #include <trajopt_common/macros.h>
 TRAJOPT_IGNORE_WARNINGS_PUSH
 #include <Eigen/Eigen>
-#include <array>
 #include <tesseract_collision/core/types.h>
-#include <tesseract_kinematics/core/fwd.h>
+#include <tesseract_kinematics/core/joint_group.h>
 TRAJOPT_IGNORE_WARNINGS_POP
+
+#include <trajopt_common/collision_types.h>
 
 namespace trajopt_common
 {
-struct TrajOptCollisionConfig;
-struct GradientResults;
-
 std::size_t getHash(const TrajOptCollisionConfig& collision_config, const Eigen::Ref<const Eigen::VectorXd>& dof_vals);
 std::size_t getHash(const TrajOptCollisionConfig& collision_config,
                     const Eigen::Ref<const Eigen::VectorXd>& dof_vals0,
@@ -49,11 +47,9 @@ std::size_t cantorHash(int shape_id, int subshape_id);
  * @brief Remove any results that are invalid.
  * Invalid state are contacts that occur at fixed states or have distances outside the threshold.
  * @param contact_results Contact results vector to process.
- * @param position_vars_fixed Indicate if a state is fixed
  */
 void removeInvalidContactResults(tesseract_collision::ContactResultVector& contact_results,
-                                 const Eigen::Vector3d& data,
-                                 const std::array<bool, 2>& position_vars_fixed);
+                                 const Eigen::Vector3d& data);
 
 /**
  * @brief Extracts the gradient information based on the contact results
@@ -67,7 +63,7 @@ GradientResults getGradient(const Eigen::VectorXd& dofvals,
                             const tesseract_collision::ContactResult& contact_result,
                             double margin,
                             double margin_buffer,
-                            const tesseract_kinematics::JointGroup& manip);
+                            const tesseract_kinematics::JointGroup::ConstPtr& manip);
 
 /**
  * @brief Extracts the gradient information based on the contact results
@@ -82,7 +78,7 @@ GradientResults getGradient(const Eigen::VectorXd& dofvals0,
                             const tesseract_collision::ContactResult& contact_result,
                             double margin,
                             double margin_buffer,
-                            const tesseract_kinematics::JointGroup& manip);
+                            const tesseract_kinematics::JointGroup::ConstPtr& manip);
 
 /**
  * @brief Print debug gradient information
